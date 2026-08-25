@@ -322,6 +322,32 @@ export const receiptsService = {
     req<{ ok: true; affected: number; unified: boolean }>('POST', `/erp/receipts/${id}/cancel`, { motivo }),
   reopen: (id: string) =>
     req<{ ok: true; affected: number; unified: boolean }>('POST', `/erp/receipts/${id}/reopen`),
+  /**
+   * Liberação MANUAL de um contrato+competência: cancela recibos ativos e NFs
+   * ativas daquele mês (sem tocar em outros meses do grupo unificado) e garante
+   * que a pendência volte a aparecer no Financeiro → Pendentes.
+   */
+  releaseCompetencia: (
+    contractId: string,
+    competencia: string,
+    opts?: { motivo?: string; reativar?: boolean },
+  ) =>
+    req<{
+      ok: true; recibosCancelados: number; nfsCanceladas: number;
+      primeiraAjustada: boolean; reativado: boolean;
+    }>('POST', '/erp/receipts/release-competencia', { contractId, competencia, ...opts }),
+  /** Prévia SOMENTE LEITURA do que a liberação afetaria (recibos/NFs/bloqueios). */
+  previewRelease: (contractId: string, competencia: string) =>
+    req<{
+      recibos: Array<{ numero: string; numeroDisplay?: string | null; status: string; semValidade: boolean }>;
+      nfs: string[];
+      contratoAtivo: boolean;
+      primeiraCompetencia: string | null;
+      primeiraBloqueia: boolean;
+    }>(
+      'GET',
+      `/erp/receipts/release-competencia/preview?contractId=${encodeURIComponent(contractId)}&competencia=${encodeURIComponent(competencia)}`,
+    ),
   summary: (months = 12) =>
     req<{ series: ReceiptsSummaryPoint[] }>('GET', `/erp/receipts/summary?months=${months}`),
 };

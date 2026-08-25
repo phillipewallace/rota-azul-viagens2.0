@@ -211,6 +211,142 @@ router.get('/pending', async (req, res) => {
 });
 
 
+// GET /release-competencia/preview — SOMENTE LEITURA. Mostra o que a liberação
+// afetaria num contrato+competência, para o usuário conferir antes de confirmar.
+router.get('/release-competencia/preview', requireRole(...FIN_ROLES), async (req: any, res) => {
+  try {
+    const contractId = String((req.query as any).contractId || '');
+    const competencia = String((req.query as any).competencia || '');
+    if (!contractId || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) {
+      return res.status(400).json({ error: 'parâmetros inválidos' });
+    }
+    const rec = await pool.query(
+      `SELECT numero, numero_display AS "numeroDisplay", status,
+              COALESCE(sem_validade, FALSE) AS "semValidade"
+         FROM erp_receipts
+        WHERE contract_id=$1 AND competencia=$2
+          AND COALESCE(status,'aberto') <> 'cancelado'
+        ORDER BY numero`,
+      [contractId, competencia]
+    );
+    const nf = await pool.query(
+      `SELECT i.numero
+         FROM erp_invoice_billed_competences ibc
+         JOIN erp_invoices i ON i.id = ibc.invoice_id
+        WHERE ibc.contract_id=$1 AND ibc.competencia=$2 AND i.status='ativa'`,
+      [contractId, competencia]
+    );
+    const ct = await pool.query(
+      `SELECT ativo, primeira_competencia FROM erp_contracts WHERE id=$1`,
+      [contractId]
+    );
+    const c = ct.rows[0];
+    res.json({
+      recibos: rec.rows,
+      nfs: nf.rows.map((r: any) => r.numero),
+      contratoAtivo: !!c?.ativo,
+      primeiraCompetencia: c?.primeira_competencia || null,
+      primeiraBloqueia: !!(c?.primeira_competencia && c.primeira_competencia > competencia),
+    });
+  } catch (e: any) { sendError(res, e); }
+});
+
+// POST /release-competencia — liberação MANUAL de um contrato+competência.
+// Use quando uma pendência "sumiu" e precisa voltar ao Financeiro → Pendentes.
+// O que faz (transacional):
+//   1. Cancela os recibos ATIVOS (normal E sem-validade) daquele contrato/mês,
+//      preservando histórico. NÃO propaga por grupo unificado — membros do mesmo
+//      grupo em OUTROS meses não são afetados.
+//   2. Cancela as NFs ATIVAS explicitamente vinculadas àquele contrato/mês.
+//   3. Se primeira_competencia estiver depois do mês pedido, retroage até ele.
+//   4. Opcionalmente reativa um contrato encerrado (reativar=true).
+router.post('/release-competencia', requireRole(...FIN_ROLES), async (req: any, res) => {
+  const client = await pool.connect();
+  try {
+    const { contractId, competencia, motivo, reativar } = req.body || {};
+    if (!contractId) return res.status(400).json({ error: 'contractId obrigatório' });
+    if (typeof competencia !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) {
+      return res.status(400).json({ error: 'competência inválida (use YYYY-MM)' });
+    }
+    const actor = req.user?.username || req.user?.name || null;
+    const autoMotivo = (motivo && String(motivo).trim()) || 'Liberação manual de competência';
+
+    await client.query('BEGIN');
+
+    // 1) Recibos ativos daquele contrato+competência → cancelados (histórico preservado)
+    const rec = await client.query(
+      `UPDATE erp_receipts
+          SET status='cancelado', pago=FALSE, cancelado_em=NOW(),
+              motivo_cancelamento=$3, updated_by=$4, updated_at=NOW()
+        WHERE contract_id=$1 AND competencia=$2
+          AND COALESCE(status,'aberto') <> 'cancelado'
+        RETURNING id`,
+      [contractId, competencia, autoMotivo, actor]
+    );
+    const reciboIds: string[] = rec.rows.map((r: any) => r.id);
+    if (reciboIds.length > 0) {
+      // Recibos cancelados não quitam competência — vínculos saem da tabela.
+      await client.query(
+        `DELETE FROM erp_receipt_billed_competences
+          WHERE receipt_id = ANY($1::uuid[]) AND competencia=$2`,
+        [reciboIds, competencia]
+      );
+    }
+
+    // 2) NFs ativas vinculadas àquela competência → canceladas
+    const nf = await client.query(
+      `UPDATE erp_invoices i
+          SET status='cancelada', cancelado_em=NOW(), motivo_cancelamento=$3,
+              cancelado_por=$4, updated_at=NOW()
+        WHERE i.status='ativa'
+          AND i.id IN (
+            SELECT ibc.invoice_id FROM erp_invoice_billed_competences ibc
+             WHERE ibc.contract_id=$1 AND ibc.competencia=$2
+          )
+        RETURNING i.id`,
+      [contractId, competencia, autoMotivo, actor]
+    );
+
+    // 3) primeira_competencia não pode esconder o mês solicitado
+    const pc = await client.query(
+      `UPDATE erp_contracts
+          SET primeira_competencia=$2
+        WHERE id=$1
+          AND primeira_competencia IS NOT NULL AND primeira_competencia <> ''
+          AND primeira_competencia > $2
+        RETURNING id`,
+      [contractId, competencia]
+    );
+
+    // 4) Reativação opcional do contrato encerrado
+    let reativado = false;
+    if (reativar === true) {
+      const ra = await client.query(
+        `UPDATE erp_contracts SET ativo=TRUE
+          WHERE id=$1 AND ativo=FALSE RETURNING id`,
+        [contractId]
+      );
+      reativado = (ra.rowCount || 0) > 0;
+    }
+
+    await client.query('COMMIT');
+    logger.finance('RELEASE', `Competência ${competencia} liberada manualmente por ${actor}`, {
+      contractId, recibosCancelados: rec.rowCount || 0, nfsCanceladas: nf.rowCount || 0,
+    });
+    res.json({
+      ok: true,
+      recibosCancelados: rec.rowCount || 0,
+      nfsCanceladas: nf.rowCount || 0,
+      primeiraAjustada: (pc.rowCount || 0) > 0,
+      reativado,
+    });
+  } catch (e: any) {
+    await client.query('ROLLBACK');
+    sendError(res, e);
+  } finally { client.release(); }
+});
+
+
 // Gera (ou regera) recibo da competência. Se já existir, atualiza valor e marca regerado.
 router.post('/generate', requireRole(...FIN_ROLES), async (req, res) => {
   const {
@@ -280,10 +416,13 @@ router.post('/generate', requireRole(...FIN_ROLES), async (req, res) => {
 
     // Unicidade é POR TIPO: recibo normal e "sem validade jurídica" podem
     // coexistir na mesma competência (migration-erp-receipts-sem-validade-unique).
+    // Recibos CANCELADOS não ocupam a competência: podem ser reemitidos
+    // (índices únicos parciais ignoram cancelados — ver migration-fix-recibos-cancelados-unicidade.sql).
     const existing = await client.query(
       `SELECT id, numero, numero_display, snapshot FROM erp_receipts
         WHERE contract_id=$1 AND competencia=$2
-          AND COALESCE(sem_validade, FALSE) = $3`,
+          AND COALESCE(sem_validade, FALSE) = $3
+          AND COALESCE(status, 'aberto') <> 'cancelado'`,
       [contractId, competencia, !!semValidade]
     );
 
@@ -299,9 +438,11 @@ router.post('/generate', requireRole(...FIN_ROLES), async (req, res) => {
       freteAplicado = Number(snap.freteIncluso || 0);
       isPrimeiro = !!snap.primeiroRecibo;
     } else {
-      // Nova competência — é o primeiro se ainda não há outro recibo do contrato.
+      // Nova competência — é o primeiro se ainda não há outro recibo VÁLIDO do
+      // contrato (cancelados não contam: não existem mais para efeito fiscal).
       const totalRecibos = await client.query(
-        `SELECT COUNT(*)::int AS n FROM erp_receipts WHERE contract_id=$1`,
+        `SELECT COUNT(*)::int AS n FROM erp_receipts
+          WHERE contract_id=$1 AND COALESCE(status, 'aberto') <> 'cancelado'`,
         [contractId]
       );
       isPrimeiro = (totalRecibos.rows[0]?.n || 0) === 0;
@@ -396,9 +537,12 @@ router.post('/generate', requireRole(...FIN_ROLES), async (req, res) => {
             SET valor=$2, pago=$3, snapshot=$4, data_vencimento=$5,
                 periodo_inicio = COALESCE($6, periodo_inicio),
                 periodo_fim    = COALESCE($7, periodo_fim),
-                 unified_group_id = $8,
+                 -- Regeração individual NÃO expulsa o recibo do grupo unificado:
+                 -- sem unifiedGroupId no body, preserva o vínculo existente.
+                 unified_group_id = COALESCE($8::uuid, unified_group_id),
                  numero_display = CASE
                    WHEN $8::uuid IS NOT NULL THEN COALESCE($9, numero_display)
+                   WHEN unified_group_id IS NOT NULL THEN numero_display
                    WHEN $10::boolean THEN REGEXP_REPLACE(numero, '^SV-', '')
                    ELSE NULL
                  END,
@@ -631,7 +775,7 @@ router.patch('/:id', requireRole(...FIN_ROLES), async (req, res) => {
     try {
       await client.query('BEGIN');
       
-      const cur = await client.query('SELECT id, status, contract_id, competencia, snapshot FROM erp_receipts WHERE id=$1', [req.params.id]);
+      const cur = await client.query('SELECT id, status, contract_id, competencia, sem_validade, unified_group_id, snapshot FROM erp_receipts WHERE id=$1', [req.params.id]);
       if (!cur.rows[0]) {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Recibo não encontrado' });
@@ -644,19 +788,38 @@ router.patch('/:id', requireRole(...FIN_ROLES), async (req, res) => {
 
       // CNO/Endereço sincronizam com o contrato; os demais overrides ficam
       // apenas no snapshot do recibo (o PDF lê o snapshot).
+      // EXCEÇÃO: quando o grupo unificado contém o MESMO contrato mais de uma
+      // vez (ex.: duas competências liberadas juntas), gravar no cadastro duas
+      // vezes criaria corrida/divergência — nesse caso grava SOMENTE no
+      // snapshot de cada recibo, preservando o cadastro estável.
       if (patch.cno !== undefined || patch.endereco_obra !== undefined ||
           patch.periodo_inicio !== undefined || patch.periodo_fim !== undefined ||
           hasSnapOverride) {
+        let sincronizaContrato = true;
+        if (rec.unified_group_id) {
+          const dup = await client.query(
+            `SELECT COUNT(*)::int AS n FROM erp_receipts
+              WHERE unified_group_id = $1 AND contract_id = $2
+                AND COALESCE(status,'aberto') <> 'cancelado'
+                AND id <> $3`,
+            [rec.unified_group_id, rec.contract_id, req.params.id]
+          );
+          sincronizaContrato = (dup.rows[0]?.n || 0) === 0;
+        }
         const snap = rec.snapshot || {};
         const snapContract = { ...(snap.contract || {}) };
 
         if (patch.cno !== undefined) {
           snapContract.cno = patch.cno;
-          await client.query('UPDATE erp_contracts SET cno = $2 WHERE id = $1', [rec.contract_id, patch.cno]);
+          if (sincronizaContrato) {
+            await client.query('UPDATE erp_contracts SET cno = $2 WHERE id = $1', [rec.contract_id, patch.cno]);
+          }
         }
         if (patch.endereco_obra !== undefined) {
           snapContract.enderecoObra = patch.endereco_obra;
-          await client.query('UPDATE erp_contracts SET endereco_obra = $2 WHERE id = $1', [rec.contract_id, patch.endereco_obra]);
+          if (sincronizaContrato) {
+            await client.query('UPDATE erp_contracts SET endereco_obra = $2 WHERE id = $1', [rec.contract_id, patch.endereco_obra]);
+          }
         }
 
         // Mantém o período do snapshot coerente com as colunas do recibo.
@@ -697,9 +860,28 @@ router.patch('/:id', requireRole(...FIN_ROLES), async (req, res) => {
       }
 
       if (patch.competencia !== undefined && patch.competencia !== rec.competencia) {
+        // Não permite mover o recibo para uma competência que já possui outro
+        // recibo válido do mesmo tipo — evita 500 por violação de índice único.
+        const clash = await client.query(
+          `SELECT numero FROM erp_receipts
+            WHERE contract_id = $1 AND competencia = $2
+              AND COALESCE(sem_validade, FALSE) = $3
+              AND COALESCE(status, 'aberto') <> 'cancelado'
+              AND id <> $4`,
+          [rec.contract_id, patch.competencia, !!rec.sem_validade, req.params.id]
+        );
+        if (clash.rows[0]) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({
+            error: `A competência ${patch.competencia} já possui o recibo ${clash.rows[0].numero} deste contrato.`,
+          });
+        }
         await client.query(
+          // Remove TODOS os vínculos antigos (inclusive reconciliados historicamente):
+          // um vínculo que sobrevivesse manteria a competência antiga quitada por um
+          // recibo que não pertence mais a ela, escondendo uma pendência legítima.
           `DELETE FROM erp_receipt_billed_competences
-            WHERE receipt_id=$1 AND competencia=$2 AND reconciled=FALSE`,
+            WHERE receipt_id=$1 AND competencia=$2`,
           [req.params.id, rec.competencia],
         );
         await client.query(
@@ -826,6 +1008,18 @@ router.post('/:id/cancel', requireRole(...FIN_ROLES), async (req: any, res) => {
         WHERE (id = $1 OR ($4::uuid IS NOT NULL AND unified_group_id = $4::uuid))
           AND status <> 'cancelado'`,
       [req.params.id, String(motivo).trim(), actor, groupId]
+    );
+    // Remove os vínculos de competência faturada dos recibos cancelados, na
+    // mesma transação. A consulta de Pendentes já ignora recibos cancelados,
+    // mas limpar aqui garante que a tabela reflita apenas faturamento válido
+    // (recibo cancelado não quita competência alguma).
+    await client.query(
+      `DELETE FROM erp_receipt_billed_competences bc
+         USING erp_receipts rr
+        WHERE bc.receipt_id = rr.id
+          AND rr.status = 'cancelado'
+          AND (rr.id = $1 OR ($2::uuid IS NOT NULL AND rr.unified_group_id = $2::uuid))`,
+      [req.params.id, groupId]
     );
     await client.query('COMMIT');
     res.json({ ok: true, affected: updated.rowCount || 0, unified: !!groupId });

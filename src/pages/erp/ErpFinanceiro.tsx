@@ -1032,6 +1032,25 @@ const ErpFinanceiro: React.FC = () => {
         }
       }
 
+      // Falha parcial: desfaz o grupo pela metade. O /cancel propaga pelo
+      // unified_group_id, então um único cancelamento desfaz todo o grupo
+      // já gerado e devolve todas as competências aos Pendentes.
+      if (failCount > 0 && gerados.length > 0) {
+        const motivo = 'Cancelamento automático — geração unificada incompleta';
+        await Promise.all(gerados.map(g => receiptsService.cancel(g.id, motivo).catch(() => null)));
+        const falhos = arr.filter((_, i) => numeros[i] === null)
+          .map(p => p.contractNumero || p.contractId.slice(0, 8)).join(', ');
+        setSelected(new Set());
+        await load();
+        toast.error(`Falha ao gerar recibo de: ${falhos}. Os recibos parciais foram cancelados — nenhuma cobrança ficou pela metade.`);
+        return;
+      }
+      if (gerados.length === 0) {
+        setSelected(new Set());
+        await load();
+        throw new Error('Nenhum recibo pôde ser gerado. Verifique os contratos e tente novamente.');
+      }
+
       // Numeração única do grupo: todos os recibos exibem o número do primeiro.
       const numero = numeroGrupo || `UNIF-${todayISO()}`;
       if (gerados.length) {
@@ -1077,7 +1096,6 @@ const ErpFinanceiro: React.FC = () => {
       await load();
       setActiveTab('emitidos');
       if (failCount === 0) toast.success(`Recibo unificado gerado · ${okCount} contratos · ${formatComp(compOf(arr[0]))}`);
-      else toast.warning(`PDF gerado. ${okCount} recibos ok, ${failCount} falharam`);
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao gerar recibo unificado');
     } finally {
@@ -1088,7 +1106,15 @@ const ErpFinanceiro: React.FC = () => {
   const regerar = async (r: Receipt) => {
     setWorking(r.id);
     try {
-      await receiptsService.generate({ contractId: r.contractId, competencia: r.competencia, regerar: true, valor: Number(r.valor) });
+      // semValidade é obrigatório no regerar: sem isso um recibo "sem validade
+      // jurídica" seria procurado/criado como recibo NORMAL na mesma competência.
+      await receiptsService.generate({
+        contractId: r.contractId,
+        competencia: r.competencia,
+        regerar: true,
+        valor: Number(r.valor),
+        semValidade: !!r.semValidade,
+      });
       toast.success('Recibo re-gerado');
       await load();
     } catch (e: any) { toast.error(e.message); }
@@ -1365,27 +1391,50 @@ const ErpFinanceiro: React.FC = () => {
   const confirmUnified = async (input: UnifiedReceiptInput) => {
     setBatchWorking(true);
     try {
-      const results = [];
+      const results: any[] = [];
+      const falhos: string[] = [];
       const unifiedGroupId = crypto.randomUUID();
       // Apenas o primeiro recibo consome numeração; os demais reutilizam.
       let numeroGrupo: string | null = null;
       for (const it of input.items) {
-        const r = await receiptsService.generate({
-          contractId: (it as any).contractId,
-          competencia: input.competencia,
-          valor: it.valor,
-          dataVencimento: input.dataVencimento || undefined,
-          periodoInicio: (it as any).periodoInicio || undefined,
-          periodoFim: (it as any).periodoFim || undefined,
-          semValidade: !!input.semValidade,
-          cno: it.cno || undefined,
-          enderecoObra: it.enderecoObra || undefined,
-          unifiedGroupId,
-          ...(numeroGrupo ? { numeroGrupo } : {}),
-        });
-        acknowledgeGenerated((it as any).contractId, input.competencia);
-        if (!numeroGrupo) numeroGrupo = r.numeroDisplay || r.numero;
-        results.push(r);
+        try {
+          const r = await receiptsService.generate({
+            contractId: (it as any).contractId,
+            competencia: input.competencia,
+            valor: it.valor,
+            dataVencimento: input.dataVencimento || undefined,
+            periodoInicio: (it as any).periodoInicio || undefined,
+            periodoFim: (it as any).periodoFim || undefined,
+            semValidade: !!input.semValidade,
+            cno: it.cno || undefined,
+            enderecoObra: it.enderecoObra || undefined,
+            unifiedGroupId,
+            ...(numeroGrupo ? { numeroGrupo } : {}),
+          });
+          acknowledgeGenerated((it as any).contractId, input.competencia);
+          if (!numeroGrupo) numeroGrupo = r.numeroDisplay || r.numero;
+          results.push(r);
+        } catch {
+          falhos.push((it as any).contractNumero || String((it as any).contractId || '').slice(0, 8));
+        }
+      }
+
+      // Falha parcial: desfaz o grupo (o /cancel propaga pelo unified_group_id)
+      // para não deixar cobranças faturadas pela metade.
+      if (falhos.length > 0 && results.length > 0) {
+        const motivo = 'Cancelamento automático — geração unificada incompleta';
+        await Promise.all(results.map(r => receiptsService.cancel(r.id, motivo).catch(() => null)));
+        setSelected(new Set());
+        setUnifPreview(null);
+        await load();
+        toast.error(`Falha ao gerar recibo de: ${falhos.join(', ')}. Os recibos parciais foram cancelados — nenhuma cobrança ficou pela metade.`);
+        return;
+      }
+      if (results.length === 0) {
+        setSelected(new Set());
+        setUnifPreview(null);
+        await load();
+        throw new Error('Nenhum recibo pôde ser gerado. Verifique os contratos e tente novamente.');
       }
 
       // Numeração unificada: TODOS os recibos do grupo exibem o MESMO número.
@@ -1396,12 +1445,17 @@ const ErpFinanceiro: React.FC = () => {
         ),
       );
 
-      await generateUnifiedReceiptPdf({
-        ...input,
-        numero: numeroUnificado,
-      });
+      // Falha de PDF NÃO desfaz a geração: os recibos já estão válidos.
+      try {
+        await generateUnifiedReceiptPdf({
+          ...input,
+          numero: numeroUnificado,
+        });
+        toast.success(`${results.length} recibos gerados e PDF unificado baixado`);
+      } catch {
+        toast.warning(`${results.length} recibos gerados, mas o PDF não pôde ser baixado. Use "Baixar" na aba Emitidos.`);
+      }
 
-      toast.success(`${results.length} recibos gerados e PDF unificado baixado`);
       setSelected(new Set());
       setUnifPreview(null);
       await load();
@@ -3936,6 +3990,7 @@ const EditVencimentoDialog: React.FC<{
   const [comp, setComp] = useState<Record<string, string>>({});
   const [unifiedItems, setUnifiedItems] = useState<Array<{
     id: string;
+    contractId: string;
     numero: string;
     contractNumero: string;
     descricao: string;
@@ -3965,6 +4020,8 @@ const EditVencimentoDialog: React.FC<{
   };
   // Guarda os valores originais para só enviar período quando de fato mudar.
   const [origPeriodo, setOrigPeriodo] = useState<{ ini: string; fim: string }>({ ini: '', fim: '' });
+  // Baseline (JSON) de cliente/empresa carregados — só reenvia ao backend se editados.
+  const [origCustComp, setOrigCustComp] = useState<{ cust: string; comp: string }>({ cust: '', comp: '' });
 
   const receiptToUnifiedItem = (r: Receipt) => {
     const snap: any = r.snapshot || {};
@@ -3975,6 +4032,7 @@ const EditVencimentoDialog: React.FC<{
     const locacao = Number(snap.valorLocacao ?? (Number(r.valor || 0) - frete));
     return {
       id: r.id,
+      contractId: r.contractId,
       numero: r.numeroDisplay || r.numero,
       contractNumero: ct.numero || r.contractNumero || '',
       descricao: ct.descricao || '',
@@ -4010,18 +4068,23 @@ const EditVencimentoDialog: React.FC<{
     setContratoNumero(ct.numero || '');
     setValorLocacao(String(Number(snap.valorLocacao ?? receipt.valor ?? 0)));
     setFreteIncluso(String(Number(snap.freteIncluso || 0)));
-    setCust({
+    const baseCust = {
       name: cu.name || '', document: cu.document || '', address: cu.address || '',
       numero: cu.numero || '', bairro: cu.bairro || '', cidade: cu.cidade || '',
       estado: cu.estado || '', cep: cu.cep || '',
-    });
-    setComp({
+    };
+    const baseComp = {
       razaoSocial: co.razaoSocial || '', cnpj: co.cnpj || '',
       inscricaoEstadual: co.inscricaoEstadual || '', endereco: co.endereco || '',
       cidade: co.cidade || '', estado: co.estado || '', cep: co.cep || '',
       telefone: co.telefone || '', email: co.email || '',
       financeiroContato: co.financeiroContato || '',
-    });
+    };
+    setCust(baseCust);
+    setComp(baseComp);
+    // Baseline para detectar edição real de cliente/empresa (evita pisotear
+    // snapshots dos demais itens do grupo unificado com dados não tocados).
+    setOrigCustComp({ cust: JSON.stringify(baseCust), comp: JSON.stringify(baseComp) });
     setUnifiedItems([receiptToUnifiedItem(receipt)]);
   }, [receipt]);
 
@@ -4051,17 +4114,27 @@ const EditVencimentoDialog: React.FC<{
   const num = (s: string) => Number(String(s).replace(',', '.'));
   const isUnifiedEdit = !!receipt?.unifiedGroupId;
   const updateUnifiedItem = (id: string, field: string, value: string) => {
-    setUnifiedItems(prev => prev.map(it => {
-      if (it.id !== id) return it;
-      const next = { ...it, [field]: value };
-      if (field === 'valorLocacao' || field === 'freteIncluso') {
-        const loc = field === 'valorLocacao' ? num(value) : num(next.valorLocacao);
-        const fre = field === 'freteIncluso' ? (value === '' ? 0 : num(value)) : (next.freteIncluso === '' ? 0 : num(next.freteIncluso));
-        const total = loc + fre;
-        if (Number.isFinite(total)) next.valor = String(total);
-      }
-      return next;
-    }));
+    setUnifiedItems(prev => {
+      const alvo = prev.find(x => x.id === id);
+      if (!alvo) return prev;
+      // CNO e Endereço da obra pertencem ao CONTRATO: se o mesmo contrato
+      // aparece em mais de uma competência dentro do grupo unificado, a edição
+      // propaga para todos os itens dele — mantendo cadastro e PDFs coerentes.
+      const idsAlvo = (field === 'cno' || field === 'enderecoObra')
+        ? new Set(prev.filter(x => x.contractId === alvo.contractId).map(x => x.id))
+        : new Set([id]);
+      return prev.map(it => {
+        if (!idsAlvo.has(it.id)) return it;
+        const next = { ...it, [field]: value };
+        if (field === 'valorLocacao' || field === 'freteIncluso') {
+          const loc = field === 'valorLocacao' ? num(value) : num(next.valorLocacao);
+          const fre = field === 'freteIncluso' ? (value === '' ? 0 : num(value)) : (next.freteIncluso === '' ? 0 : num(next.freteIncluso));
+          const total = loc + fre;
+          if (Number.isFinite(total)) next.valor = String(total);
+        }
+        return next;
+      });
+    });
   };
 
   const salvar = async () => {
@@ -4111,19 +4184,22 @@ const EditVencimentoDialog: React.FC<{
       contratoNumero: contratoNumero.trim() || null,
       valorLocacao: vl,
       freteIncluso: vf,
-      customer: cust,
-      company: comp,
     };
+    // Só sobrescreve cliente/empresa no snapshot se realmente editados —
+    // evita pisotear dados dos demais itens do grupo unificado.
+    const custChanged = JSON.stringify(cust) !== origCustComp.cust;
+    const compChanged = JSON.stringify(comp) !== origCustComp.comp;
+    if (custChanged) patch.customer = cust;
+    if (compChanged) patch.company = comp;
     // Período: só envia se realmente mudou — evita apagar o período do recibo
     // (que faria o PDF/listagem exibirem "—") quando o campo não foi tocado.
     if (periodoInicio !== origPeriodo.ini) patch.periodoInicio = periodoInicio || null;
     if (periodoFim !== origPeriodo.fim) patch.periodoFim = periodoFim || null;
 
-    // Recalcula competência a partir do período/emissão para manter consistência.
-    const compBase = periodoInicio || dataEmissao;
-    if (compBase && /^\d{4}-\d{2}-\d{2}$/.test(compBase)) {
-      patch.competencia = compBase.slice(0, 7);
-    }
+    // NOTA: a competência faturada NÃO é recalculada aqui. Ela identifica a
+    // cobrança (contrato + mês) e controla os Pendentes; período/emissão são
+    // apenas descritivos e podem atravessar meses. Recalcular pela data movia
+    // o recibo de mês silenciosamente e dessincronizava recibo × pendência.
 
     setBusy(true);
     try {
@@ -4132,9 +4208,11 @@ const EditVencimentoDialog: React.FC<{
           dataEmissao,
           dataVencimento: dataVencimento || null,
           numeroDisplay: numeroDisplay.trim() || null,
-          customer: cust,
-          company: comp,
         };
+        // Cliente/empresa só vão para TODOS os itens se o usuário editou os
+        // campos compartilhados; caso contrário cada item preserva seu snapshot.
+        if (custChanged) shared.customer = cust;
+        if (compChanged) shared.company = comp;
         await Promise.all(unifiedItems.map((it) => receiptsService.update(it.id, {
           ...shared,
           valor: num(it.valor),

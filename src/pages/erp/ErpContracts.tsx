@@ -6,7 +6,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileSignature, Plus, Search, Upload, FileDown, Power, PowerOff,
-  Calendar, Loader2, Trash2, Pencil, Copy,
+  Calendar, Loader2, Trash2, Pencil, Copy, Unlock,
   AlertTriangle, TrendingUp, CheckCircle2, X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -30,7 +30,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { contractsService, type Contract } from '@/services/contracts';
+import { contractsService, receiptsService, type Contract } from '@/services/contracts';
 import { erpService, type ErpCompany, uploadSignedPdf } from '@/services/erp';
 import { serviceOrdersService } from '@/services/quotes';
 import { API_BASE_URL } from '@/services/config';
@@ -46,6 +46,13 @@ type Customer = { id: string; customerName: string; document?: string };
 
 import { BRL } from '@/utils/currency';
 const D = (s?: string | null) => s ? formatDateBR(s) : '—';
+
+const MES_NOMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+/** '2026-08' → 'ago/2026' — rótulo amigável da competência. */
+const mesLabel = (comp: string) => {
+  const [y, m] = comp.split('-').map(Number);
+  return Number.isFinite(y) && m >= 1 && m <= 12 ? `${MES_NOMES[m - 1]}/${y}` : comp;
+};
 
 const isoDate = (s?: string | null) => (s ? String(s).slice(0, 10) : '');
 const isBeforeIso = (a?: string | null, b?: string | null) => {
@@ -101,11 +108,37 @@ const ErpContracts: React.FC = () => {
   const [openForm, setOpenForm] = useState(false);
   const [deleting, setDeleting] = useState<Contract | null>(null);
   const [vencTarget, setVencTarget] = useState<Contract | null>(null);
+  // Liberação manual de competência ("pendência sumida"): força o retorno de
+  // um contrato+competência à lista de Pendentes do Financeiro.
+  const [releaseTarget, setReleaseTarget] = useState<Contract | null>(null);
+  const [releaseComp, setReleaseComp] = useState('');
+  const [releaseReativar, setReleaseReativar] = useState(false);
+  const [releaseBusy, setReleaseBusy] = useState(false);
+  const [releasePreview, setReleasePreview] = useState<{
+    recibos: Array<{ numero: string; numeroDisplay?: string | null; status: string; semValidade: boolean }>;
+    nfs: string[];
+    contratoAtivo: boolean;
+    primeiraBloqueia: boolean;
+    primeiraCompetencia: string | null;
+  } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
     return () => clearTimeout(t);
   }, [search]);
+
+  // Prévia ao vivo: o que a liberação afetaria na competência selecionada.
+  useEffect(() => {
+    if (!releaseTarget || !/^\d{4}-(0[1-9]|1[0-2])$/.test(releaseComp.trim())) {
+      setReleasePreview(null);
+      return;
+    }
+    let cancelled = false;
+    receiptsService.previewRelease(releaseTarget.id, releaseComp.trim())
+      .then((p) => { if (!cancelled) setReleasePreview(p); })
+      .catch(() => { if (!cancelled) setReleasePreview(null); });
+    return () => { cancelled = true; };
+  }, [releaseTarget, releaseComp]);
 
   const serverParams = useMemo(() => {
     const p: Parameters<typeof contractsService.listPaged>[0] = {};
@@ -576,6 +609,18 @@ const ErpContracts: React.FC = () => {
                             <Pencil className="h-3.5 w-3.5" />
                           </IconAction>
                           <IconAction
+                            label="Liberar competência (forçar pendência)"
+                            tone="warning"
+                            onClick={() => {
+                              const d = new Date();
+                              setReleaseTarget(c);
+                              setReleaseComp(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+                              setReleaseReativar(false);
+                            }}
+                          >
+                            <Unlock className="h-3.5 w-3.5" />
+                          </IconAction>
+                          <IconAction
                             label={c.ativo ? 'Encerrar contrato' : 'Reativar contrato'}
                             tone={c.ativo ? 'warning' : 'success'}
                             onClick={() => toggleActive(c)}
@@ -655,6 +700,110 @@ const ErpContracts: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Liberação manual de competência — força o retorno da pendência */}
+      <Dialog open={!!releaseTarget} onOpenChange={(o) => !o && setReleaseTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Unlock className="h-5 w-5" /> Liberar competência para faturamento
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Contrato <strong>{releaseTarget?.numero}</strong>: cancela recibos ativos e NFs ativas
+              vinculadas à competência selecionada (histórico preservado) e garante que ela reapareça em{' '}
+              <strong>Financeiro → Pendentes</strong>.
+            </p>
+            <div className="space-y-1">
+              <Label htmlFor="release-comp">Mês de referência (competência)</Label>
+              <Input
+                id="release-comp"
+                type="month"
+                value={releaseComp}
+                onChange={(e) => setReleaseComp(e.target.value)}
+              />
+              {releaseComp && /^\d{4}-(0[1-9]|1[0-2])$/.test(releaseComp.trim()) && (
+                <p className="text-[11px] text-muted-foreground">
+                  Somente <strong>{mesLabel(releaseComp.trim())}</strong> é afetado — meses anteriores
+                  e posteriores ficam intactos.
+                </p>
+              )}
+            </div>
+
+            {/* Prévia ao vivo do que será cancelado naquele mês */}
+            {releasePreview && (
+              <div className="rounded-md border border-border bg-muted/30 p-2 text-xs space-y-1">
+                <p className="font-semibold">O que será afetado em {mesLabel(releaseComp.trim())}:</p>
+                {releasePreview.recibos.length === 0 &&
+                 releasePreview.nfs.length === 0 &&
+                 !releasePreview.primeiraBloqueia ? (
+                  <p className="text-muted-foreground">
+                    Nada bloqueando esta competência — ela já deve aparecer em Pendentes.
+                  </p>
+                ) : (
+                  <>
+                    {releasePreview.recibos.map((r) => (
+                      <p key={r.numero}>
+                        • Recibo {r.numeroDisplay || r.numero} ({r.semValidade ? 'sem validade' : 'normal'}, {r.status}) → cancelado
+                      </p>
+                    ))}
+                    {releasePreview.nfs.map((n) => (
+                      <p key={n}>• NF {n} → cancelada</p>
+                    ))}
+                    {releasePreview.primeiraBloqueia && (
+                      <p>
+                        • Primeira competência ({releasePreview.primeiraCompetencia}) → retroagida para permitir este mês
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            {releaseTarget && !releaseTarget.ativo && (
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <Switch checked={releaseReativar} onCheckedChange={(v) => setReleaseReativar(!!v)} />
+                Reativar o contrato (atualmente encerrado)
+              </label>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReleaseTarget(null)}>Voltar</Button>
+            <Button
+              disabled={releaseBusy || !/^\d{4}-(0[1-9]|1[0-2])$/.test(releaseComp.trim())}
+              onClick={async () => {
+                if (!releaseTarget) return;
+                setReleaseBusy(true);
+                try {
+                  const r = await receiptsService.releaseCompetencia(releaseTarget.id, releaseComp.trim(), {
+                    motivo: 'Liberação manual de competência via aba Contratos',
+                    reativar: releaseReativar,
+                  });
+                  const partes: string[] = [];
+                  if (r.recibosCancelados) partes.push(`${r.recibosCancelados} recibo(s) cancelado(s)`);
+                  if (r.nfsCanceladas) partes.push(`${r.nfsCanceladas} NF(s) cancelada(s)`);
+                  if (r.primeiraAjustada) partes.push('primeira competência ajustada');
+                  if (r.reativado) partes.push('contrato reativado');
+                  toast.success(
+                    `Competência ${releaseComp.trim()} liberada${partes.length ? ' · ' + partes.join(', ') : ''}. Confira em Financeiro → Pendentes.`,
+                  );
+                  setReleaseTarget(null);
+                  setReleaseComp('');
+                  setReleaseReativar(false);
+                  await load();
+                } catch (e: any) {
+                  toast.error(e.message);
+                } finally {
+                  setReleaseBusy(false);
+                }
+              }}
+            >
+              {releaseBusy && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Liberar competência
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
     </TooltipProvider>
