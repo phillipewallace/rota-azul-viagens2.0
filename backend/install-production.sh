@@ -66,7 +66,7 @@ DB_PASSWORD=your_password_here
 JWT_SECRET=your-super-secret-key-change-in-production
 
 # Server Configuration
-PORT=3001
+PORT=3002
 
 # Google Maps API Key
 GOOGLE_MAPS_API_KEY=your-google-maps-api-key
@@ -141,4 +141,4 @@ log_warning "Não esqueça de:"
 echo "  1. Configurar seu banco PostgreSQL"
 echo "  2. Executar o schema SQL na base de dados"
 echo "  3. Configurar o arquivo .env com suas credenciais"
-echo "  4. Testar a conexão: curl http://localhost:3001/api/auth/verify"
+echo "  4. Testar a conexão: curl http://localhost:3002/api/auth/verify"

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../config/database';
-import { requireAuth } from '../middleware/requireAuth';
+import { requireAuth, requireRole } from '../middleware/requireAuth';
 import { parsePagination, sendPaginated } from '../utils/pagination';
 
 const router = Router();
@@ -271,7 +271,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requireRole('admin', 'manager'), async (req: Request, res: Response) => {
   try {
     const r = await pool.query(`DELETE FROM customers WHERE id = $1 RETURNING id`, [req.params.id]);
     if (!r.rows[0]) { res.status(404).json({ error: 'cliente não encontrado' }); return; }

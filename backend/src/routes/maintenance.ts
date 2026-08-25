@@ -1,5 +1,6 @@
 
 import { Router } from 'express';
+import { logger } from '../utils/logger';
 import { pool } from '../config/database';
 import { requireAuth } from '../middleware/requireAuth';
 
@@ -9,7 +10,7 @@ router.use(requireAuth);
 // Get all maintenance records
 router.get('/', async (req, res) => {
   try {
-    console.log('🔧 Fetching all maintenance records...');
+    logger.info('MAINT', '🔧 Fetching all maintenance records...');
     
     const query = `
       SELECT 
@@ -53,10 +54,10 @@ router.get('/', async (req, res) => {
       createdAt: record.created_at
     }));
 
-    console.log(`✅ Found ${maintenanceRecords.length} maintenance records`);
+    logger.info('MAINT', `✅ Found ${maintenanceRecords.length} maintenance records`);
     res.json(maintenanceRecords);
   } catch (error) {
-    console.error('❌ Error fetching maintenance records:', error);
+    logger.error('MAINT', '❌ Error fetching maintenance records:', error);
     res.status(500).json({ error: 'Erro ao buscar registros de manutenção' });
   }
 });
@@ -84,7 +85,7 @@ router.get('/:id', async (req, res) => {
     
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('❌ Error fetching maintenance record:', error);
+    logger.error('MAINT', '❌ Error fetching maintenance record:', error);
     res.status(500).json({ error: 'Erro ao buscar registro de manutenção' });
   }
 });
@@ -136,10 +137,10 @@ router.post('/', async (req, res) => {
       );
     }
     
-    console.log('✅ Maintenance record created for truck:', truck_id);
+    logger.info('MAINT', '✅ Maintenance record created for truck:', truck_id);
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error('❌ Error creating maintenance record:', error);
+    logger.error('MAINT', '❌ Error creating maintenance record:', error);
     res.status(500).json({ error: 'Erro ao criar registro de manutenção' });
   }
 });
@@ -186,10 +187,10 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Registro de manutenção não encontrado' });
     }
     
-    console.log('✅ Maintenance record updated:', id);
+    logger.info('MAINT', '✅ Maintenance record updated:', id);
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('❌ Error updating maintenance record:', error);
+    logger.error('MAINT', '❌ Error updating maintenance record:', error);
     res.status(500).json({ error: 'Erro ao atualizar registro de manutenção' });
   }
 });
@@ -205,10 +206,10 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Registro de manutenção não encontrado' });
     }
     
-    console.log('✅ Maintenance record deleted:', id);
+    logger.info('MAINT', '✅ Maintenance record deleted:', id);
     res.json({ message: 'Registro de manutenção excluído com sucesso' });
   } catch (error) {
-    console.error('❌ Error deleting maintenance record:', error);
+    logger.error('MAINT', '❌ Error deleting maintenance record:', error);
     res.status(500).json({ error: 'Erro ao excluir registro de manutenção' });
   }
 });

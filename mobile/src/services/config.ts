@@ -32,7 +32,7 @@ console.log('  - useProductionAPI:', useProductionAPI);
 
 // URL da API - SEMPRE produção em APK
 const PRODUCTION_API = 'https://alchemyrotas.com/api';
-const DEV_API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const DEV_API = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
 
 export const API_BASE_URL = useProductionAPI ? PRODUCTION_API : DEV_API;
 

@@ -21,7 +21,7 @@ Copie o arquivo `.env.example` para `.env` e configure conforme o ambiente:
 
 **Para desenvolvimento local:**
 ```env
-VITE_API_URL=http://localhost:3001/api
+VITE_API_URL=http://localhost:3002/api
 ```
 
 **Para desenvolvimento com IP específico:**

@@ -90,7 +90,7 @@ DB_USER=seu_usuario
 DB_PASSWORD=sua_senha
 
 # Server
-PORT=3001
+PORT=3002
 NODE_ENV=development
 FRONTEND_URL=http://localhost:5173
 
@@ -143,7 +143,7 @@ npm install
 #### 4.3. Verificar Configuração da API
 
 O arquivo `src/services/config.ts` já está configurado para:
-- **Desenvolvimento:** `http://localhost:3001/api`
+- **Desenvolvimento:** `http://localhost:3002/api`
 - **Produção:** `https://admmicban.com.br/api`
 
 Não é necessário alterar nada para desenvolvimento local.
@@ -176,7 +176,7 @@ cd backend
 npm run dev
 ```
 
-O backend estará rodando em: `http://localhost:3001`
+O backend estará rodando em: `http://localhost:3002`
 
 ### Iniciar o Frontend
 
@@ -287,7 +287,7 @@ GRANT ALL PRIVILEGES ON DATABASE roteirizador1 TO seu_usuario;
 
 ```bash
 # Encontrar processo usando a porta (Linux/Mac)
-lsof -i :3001
+lsof -i :3002
 
 # Matar o processo
 kill -9 <PID>

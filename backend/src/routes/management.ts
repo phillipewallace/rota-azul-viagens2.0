@@ -1,5 +1,6 @@
 
 import { Router } from 'express';
+import { logger } from '../utils/logger';
 import { pool } from '../config/database';
 
 const router = Router();
@@ -7,7 +8,7 @@ const router = Router();
 // Get management statistics
 router.get('/stats', async (req, res) => {
   try {
-    console.log('📊 Fetching management stats...');
+    logger.info('MGMT', '📊 Fetching management stats...');
     
     // Get trucks stats
     const trucksQuery = `
@@ -76,10 +77,10 @@ router.get('/stats', async (req, res) => {
       }
     };
 
-    console.log('✅ Management stats loaded successfully');
+    logger.info('MGMT', '✅ Management stats loaded successfully');
     res.json(stats);
   } catch (error) {
-    console.error('❌ Error fetching management stats:', error);
+    logger.error('MGMT', '❌ Error fetching management stats:', error);
     res.status(500).json({ error: 'Erro ao buscar estatísticas de gestão' });
   }
 });
@@ -87,7 +88,7 @@ router.get('/stats', async (req, res) => {
 // Get maintenance records
 router.get('/maintenance', async (req, res) => {
   try {
-    console.log('🔧 Fetching maintenance records...');
+    logger.info('MGMT', '🔧 Fetching maintenance records...');
     
     const { startDate, endDate, truckId, status, type } = req.query;
     
@@ -179,10 +180,10 @@ router.get('/maintenance', async (req, res) => {
 
 
 
-    console.log(`✅ Found ${maintenanceRecords.length} maintenance records`);
+    logger.info('MGMT', `✅ Found ${maintenanceRecords.length} maintenance records`);
     res.json(maintenanceRecords);
   } catch (error) {
-    console.error('❌ Error fetching maintenance records:', error);
+    logger.error('MGMT', '❌ Error fetching maintenance records:', error);
     res.status(500).json({ error: 'Erro ao buscar registros de manutenção' });
   }
 });
@@ -190,7 +191,7 @@ router.get('/maintenance', async (req, res) => {
 // Create maintenance record
 router.post('/maintenance', async (req, res) => {
   try {
-    console.log('🔧 Creating maintenance record...', req.body);
+    logger.info('MGMT', '🔧 Creating maintenance record...', req.body);
     
     const { 
       truck_id, 
@@ -209,7 +210,7 @@ router.post('/maintenance', async (req, res) => {
     
     // Validate required fields
     if (!truck_id || !maintenance_type || !description || !scheduled_date) {
-      console.log('❌ Missing required fields:', { truck_id, maintenance_type, description, scheduled_date });
+      logger.info('MGMT', '❌ Missing required fields:', { truck_id, maintenance_type, description, scheduled_date });
       return res.status(400).json({ 
         error: 'Campos obrigatórios: truck_id, maintenance_type, description, scheduled_date' 
       });
@@ -218,7 +219,7 @@ router.post('/maintenance', async (req, res) => {
     // Check if truck exists
     const truckCheck = await pool.query('SELECT id FROM trucks WHERE id = $1', [truck_id]);
     if (truckCheck.rows.length === 0) {
-      console.log('❌ Truck not found:', truck_id);
+      logger.info('MGMT', '❌ Truck not found:', truck_id);
       return res.status(400).json({ error: 'Caminhão não encontrado' });
     }
     
@@ -266,12 +267,12 @@ router.post('/maintenance', async (req, res) => {
 
 
     
-    console.log('✅ Maintenance record created:', result.rows[0].id);
+    logger.info('MGMT', '✅ Maintenance record created:', result.rows[0].id);
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error('❌ Error creating maintenance record:', error);
+    logger.error('MGMT', '❌ Error creating maintenance record:', error);
     const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
-    console.error('❌ Error details:', errorMessage);
+    logger.error('MGMT', '❌ Error details:', errorMessage);
     res.status(500).json({ error: 'Erro ao criar registro de manutenção: ' + errorMessage });
   }
 });
@@ -279,7 +280,7 @@ router.post('/maintenance', async (req, res) => {
 // Update maintenance record
 router.put('/maintenance/:id', async (req, res) => {
   try {
-    console.log('🔧 Updating maintenance record:', req.params.id);
+    logger.info('MGMT', '🔧 Updating maintenance record:', req.params.id);
     
     const { id } = req.params;
     const { 
@@ -344,10 +345,10 @@ router.put('/maintenance/:id', async (req, res) => {
       return res.status(404).json({ error: 'Registro de manutenção não encontrado' });
     }
     
-    console.log('✅ Maintenance record updated:', id);
+    logger.info('MGMT', '✅ Maintenance record updated:', id);
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('❌ Error updating maintenance record:', error);
+    logger.error('MGMT', '❌ Error updating maintenance record:', error);
     const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
     res.status(500).json({ error: 'Erro ao atualizar registro de manutenção: ' + errorMessage });
   }
@@ -356,7 +357,7 @@ router.put('/maintenance/:id', async (req, res) => {
 // Delete maintenance record
 router.delete('/maintenance/:id', async (req, res) => {
   try {
-    console.log('🔧 Deleting maintenance record:', req.params.id);
+    logger.info('MGMT', '🔧 Deleting maintenance record:', req.params.id);
     
     const { id } = req.params;
     
@@ -366,10 +367,10 @@ router.delete('/maintenance/:id', async (req, res) => {
       return res.status(404).json({ error: 'Registro de manutenção não encontrado' });
     }
     
-    console.log('✅ Maintenance record deleted:', id);
+    logger.info('MGMT', '✅ Maintenance record deleted:', id);
     res.json({ message: 'Registro de manutenção excluído com sucesso' });
   } catch (error) {
-    console.error('❌ Error deleting maintenance record:', error);
+    logger.error('MGMT', '❌ Error deleting maintenance record:', error);
     const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
     res.status(500).json({ error: 'Erro ao excluir registro de manutenção: ' + errorMessage });
   }
@@ -378,7 +379,7 @@ router.delete('/maintenance/:id', async (req, res) => {
 // Get costs summary
 router.get('/costs-summary', async (req, res) => {
   try {
-    console.log('💰 Fetching costs summary...');
+    logger.info('MGMT', '💰 Fetching costs summary...');
     
     const { startDate, endDate } = req.query;
     
@@ -418,10 +419,10 @@ router.get('/costs-summary', async (req, res) => {
       avg_cost: parseFloat(row.avg_cost)
     }));
 
-    console.log(`✅ Found ${summary.length} cost summary items`);
+    logger.info('MGMT', `✅ Found ${summary.length} cost summary items`);
     res.json(summary);
   } catch (error) {
-    console.error('❌ Error fetching costs summary:', error);
+    logger.error('MGMT', '❌ Error fetching costs summary:', error);
     res.status(500).json({ error: 'Erro ao buscar resumo de custos' });
   }
 });

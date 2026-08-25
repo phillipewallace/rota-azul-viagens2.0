@@ -64,17 +64,38 @@ const ALLOWED_ORIGINS = [
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    if (/\.lovableproject\.com$/.test(new URL(origin).hostname) || /\.lovable\.app$/.test(new URL(origin).hostname)) {
-      return cb(null, true);
+    try {
+      const host = new URL(origin).hostname;
+      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      if (/\.lovableproject\.com$/.test(host) || /\.lovable\.app$/.test(host)) {
+        return cb(null, true);
+      }
+      return cb(new Error(`Origem não permitida: ${origin}`));
+    } catch {
+      // Origin malformado nunca deve estourar 500 — apenas bloqueia.
+      return cb(new Error(`Origem inválida: ${origin}`));
     }
-    return cb(new Error(`Origem não permitida: ${origin}`));
   },
   credentials: true,
 }));
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Intake de logs do cliente: rate-limit próprio e payload CAPADO em 32kb.
+// O parser estrito roda ANTES do parser global — body-parser não re-parseia
+// corpo já lido, então este cap é efetivo mesmo com limite maior abaixo.
+const logLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitos logs enviados. Tente novamente mais tarde.' },
+});
+app.use('/api/logs/client', logLimiter, express.json({ limit: '32kb' }));
+
+// Limites globais realistas: JSON grande o bastante para assinaturas (dataURL),
+// mas longe dos 50mb anteriores (vetor de DoS). Uploads de arquivo usam
+// multipart/multer e não dependem deste limite.
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -154,9 +175,17 @@ if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
       res.sendFile('/var/www/rota-azul-viagens/dist/index.html');
+    } else {
+      // Rotas /api desconhecidas NÃO podem ficar sem resposta (request hang).
+      res.status(404).json({ error: 'Endpoint não encontrado' });
     }
   });
 }
+
+// 404 explícito para qualquer /api não tratado (vale também em dev).
+app.use('/api', (_req: express.Request, res: express.Response) => {
+  res.status(404).json({ error: 'Endpoint não encontrado' });
+});
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   logger.error('SERVER-ERROR', err.message, { stack: err.stack });

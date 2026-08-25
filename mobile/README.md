@@ -76,7 +76,7 @@ npx cap run android  # ou ios
 
 ## Comunicação com Backend
 
-A aplicação se comunica com o backend principal em `http://localhost:3001/api`
+A aplicação se comunica com o backend principal em `http://localhost:3002/api`
 
 ### Endpoints usados:
 - `GET /api/mobile/truck/:plate` - Buscar dados do caminhão

@@ -390,7 +390,7 @@ const config: CapacitorConfig = {
 - [ ] Sistema de logs/monitoramento configurado
 
 ### URLs Importantes:
-- **Backend Local**: http://localhost:3001
+- **Backend Local**: http://localhost:3002
 - **Backend Produção**: https://seu-dominio.com
 - **App Web**: https://seu-dominio.com
 - **Google Maps Console**: https://console.cloud.google.com

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { logger } from '../utils/logger';
 import { googleMapsOptimizer } from '../services/googleMapsOptimizer';
 import { optimizeLargeRoute } from '../services/hybridOptimizer';
 
@@ -22,7 +23,7 @@ interface ViaCepResponse {
 // Get address by CEP
 router.get('/cep/:cep', async (req, res) => {
   try {
-    console.log('🔍 [GEOCODING CEP] Buscando CEP:', req.params.cep);
+    logger.info('GEO', '🔍 [GEOCODING CEP] Buscando CEP:', req.params.cep);
     const { cep } = req.params;
     
     // Busca no ViaCEP
@@ -56,10 +57,10 @@ router.get('/cep/:cep', async (req, res) => {
       lng: lng
     };
 
-    console.log('✅ [GEOCODING CEP] Resultado encontrado');
+    logger.info('GEO', '✅ [GEOCODING CEP] Resultado encontrado');
     res.json(result);
   } catch (error) {
-    console.error('❌ [GEOCODING CEP] Error fetching address by CEP:', error);
+    logger.error('GEO', '❌ [GEOCODING CEP] Error fetching address by CEP:', error);
     res.status(500).json({ error: 'Erro ao buscar endereço' });
   }
 });
@@ -67,19 +68,19 @@ router.get('/cep/:cep', async (req, res) => {
 // ⚠️ ENDPOINT DE FALLBACK - USADO APENAS QUANDO INTELLIGENT FALHA
 router.post('/optimize', async (req, res) => {
   try {
-    console.log('🔄 [GEOCODING FALLBACK] ========================================');
-    console.log('🔄 [GEOCODING FALLBACK] ATENÇÃO: Este endpoint deveria ser usado apenas como FALLBACK');
-    console.log('🔄 [GEOCODING FALLBACK] Se você está vendo isso, significa que a otimização inteligente falhou');
-    console.log('🔄 [GEOCODING FALLBACK] ========================================');
+    logger.info('GEO', '🔄 [GEOCODING FALLBACK] ========================================');
+    logger.info('GEO', '🔄 [GEOCODING FALLBACK] ATENÇÃO: Este endpoint deveria ser usado apenas como FALLBACK');
+    logger.info('GEO', '🔄 [GEOCODING FALLBACK] Se você está vendo isso, significa que a otimização inteligente falhou');
+    logger.info('GEO', '🔄 [GEOCODING FALLBACK] ========================================');
     
     const { points } = req.body;
     
     if (!points || points.length < 2) {
-      console.log('❌ [GEOCODING FALLBACK] Pontos insuficientes:', points?.length || 0);
+      logger.info('GEO', '❌ [GEOCODING FALLBACK] Pontos insuficientes:', points?.length || 0);
       return res.status(400).json({ error: 'É necessário pelo menos 2 pontos' });
     }
 
-    console.log(`🔄 [GEOCODING FALLBACK] Processando ${points.length} pontos com Routes API tradicional`);
+    logger.info('GEO', `🔄 [GEOCODING FALLBACK] Processando ${points.length} pontos com Routes API tradicional`);
 
     // Formatar pontos para o otimizador
     const formattedPoints = points.map((point: any, index: number) => ({
@@ -94,7 +95,7 @@ router.post('/optimize', async (req, res) => {
       completedAt: point.completedAt || null
     }));
 
-    console.log('🎯 [GEOCODING FALLBACK] Pontos formatados:', formattedPoints.length);
+    logger.info('GEO', '🎯 [GEOCODING FALLBACK] Pontos formatados:', formattedPoints.length);
 
     // Para rotas grandes (>27 pts = origem + destino + 25 wp), usar HYBRID OPTIMIZER (NN + 2-opt + or-opt + cache)
     const optimized = formattedPoints.length > 27
@@ -106,7 +107,7 @@ router.post('/optimize', async (req, res) => {
     const minutes = Math.floor((optimized.totalDuration % 3600) / 60);
     const estimatedTime = hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
 
-    console.log(`✅ [GEOCODING FALLBACK] Fallback concluído: ${optimized.totalDistance.toFixed(1)}km, ${estimatedTime}`);
+    logger.info('GEO', `✅ [GEOCODING FALLBACK] Fallback concluído: ${optimized.totalDistance.toFixed(1)}km, ${estimatedTime}`);
 
     const response = {
       points: optimized.optimizedPoints,
@@ -117,21 +118,21 @@ router.post('/optimize', async (req, res) => {
       optimization: 'GEOCODING_FALLBACK'
     };
 
-    console.log('📤 [GEOCODING FALLBACK] Enviando resposta de fallback com', response.points.length, 'pontos');
-    console.log('🔄 [GEOCODING FALLBACK] ========================================');
+    logger.info('GEO', '📤 [GEOCODING FALLBACK] Enviando resposta de fallback com', response.points.length, 'pontos');
+    logger.info('GEO', '🔄 [GEOCODING FALLBACK] ========================================');
     
     res.json(response);
 
   } catch (error) {
-    console.error('❌ [GEOCODING FALLBACK] Erro no fallback:', error);
+    logger.error('GEO', '❌ [GEOCODING FALLBACK] Erro no fallback:', error);
     
     // Último recurso: otimização básica
     try {
-      console.log(`⚡ [BASIC FALLBACK] Usando algoritmo básico de emergência`);
+      logger.info('GEO', `⚡ [BASIC FALLBACK] Usando algoritmo básico de emergência`);
       const basicOptimized = basicOptimization(req.body.points);
       res.json(basicOptimized);
     } catch (fallbackError) {
-      console.error('❌ [BASIC FALLBACK] Todos os fallbacks falharam:', fallbackError);
+      logger.error('GEO', '❌ [BASIC FALLBACK] Todos os fallbacks falharam:', fallbackError);
       res.status(500).json({ error: 'Erro ao otimizar rota com todas as APIs' });
     }
   }
@@ -139,7 +140,7 @@ router.post('/optimize', async (req, res) => {
 
 // Função de fallback para otimização básica
 function basicOptimization(points: any[]) {
-  console.log(`⚡ [BASIC OPTIMIZE] Usando algoritmo básico de fallback`);
+  logger.info('GEO', `⚡ [BASIC OPTIMIZE] Usando algoritmo básico de fallback`);
   
   const origin = points.find((p: any) => p.type === 'origin') || points[0];
   const destination = points.find((p: any) => p.type === 'destination') || points[points.length - 1];

@@ -12,6 +12,7 @@ import ContractTemplatesSettings from '@/components/settings/ContractTemplatesSe
 import UsersSettings from '@/components/settings/UsersSettings';
 
 import { useAuth } from '@/hooks/useAuth';
+import { API_BASE_URL } from '@/services/config';
 
 const SUPER_ADMIN_USERNAME = 'phillipe.sodre';
 
@@ -55,7 +56,12 @@ const Settings = () => {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/settings');
+        // Usa a URL central da API + token — nunca localhost hardcoded
+        // (quebraria em produção e apontava para a porta errada).
+        const token = localStorage.getItem('auth_token');
+        const response = await fetch(`${API_BASE_URL}/settings`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
         if (response.ok) {
           const data = await response.json();
           setSettings(data);
@@ -91,9 +97,13 @@ const Settings = () => {
 
     try {
       setSaving(true);
-      const response = await fetch('http://localhost:3001/api/settings', {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_BASE_URL}/settings`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(newSettings),
       });
 

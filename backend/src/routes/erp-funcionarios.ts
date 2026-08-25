@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../config/database';
-import { requireAuth } from '../middleware/requireAuth';
+import { requireAuth, requireRole, JWT_SECRET } from '../middleware/requireAuth';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
@@ -40,7 +40,8 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'Senha incorreta' });
         }
 
-        const SECRET = process.env.JWT_SECRET || 'dev-only-insecure-secret';
+        // Fonte única de verdade para o segredo (mesma do middleware).
+        const SECRET = JWT_SECRET;
         const token = jwt.sign(
             { 
                 userId: func.id, 
@@ -76,7 +77,8 @@ router.use((req, res, next) => {
     return requireAuth(req, res, next);
 });
 
-router.get('/', async (req, res) => {
+// Listar funcionários expõe CPFs — restrito a gestão.
+router.get('/', requireRole('admin', 'manager'), async (req, res) => {
     try {
         const r = await pool.query('SELECT id, nome, cpf, telefone, email, tipo, active, first_login FROM erp_funcionarios ORDER BY nome ASC');
         res.json(r.rows);
@@ -86,7 +88,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('admin', 'manager'), async (req, res) => {
     const { nome, cpf, telefone, email, tipo } = req.body;
     try {
         const cleanCpf = String(cpf).replace(/\D/g, '');
@@ -102,7 +104,7 @@ router.post('/', async (req, res) => {
 });
 
 // Edição de funcionário
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('admin', 'manager'), async (req, res) => {
     const { id } = req.params;
     const { nome, telefone, email, tipo, active } = req.body;
     try {
@@ -115,7 +117,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Exclusão Híbrida (Inativação ou Exclusão Real)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
     const { id } = req.params;
     const { permanent } = req.query;
     try {

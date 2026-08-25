@@ -96,7 +96,10 @@ const AppFuncionarios = () => {
       logger.info('Login realizado com sucesso', { id: data.id });
     } catch (e: any) { 
       logger.error('Erro no login', { message: e.message });
-      toast.error('Erro ao conectar com o servidor'); 
+      // Distingue credencial errada de falha de conexão (UX para o usuário de campo).
+      toast.error(e.message === 'Credenciais inválidas'
+        ? 'CPF ou senha incorretos'
+        : 'Erro ao conectar com o servidor'); 
     } finally { 
       setLoading(false); 
     }
