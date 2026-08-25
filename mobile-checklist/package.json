@@ -1,0 +1,22 @@
+{
+  "name": "alchemy-checklist-mobile",
+  "private": true,
+  "version": "1.0.0",
+  "description": "App APK para preenchimento de checklist de caminhões e carretinhas — wrapper Capacitor que carrega https://alchemyrotas.com/checklist",
+  "scripts": {
+    "build": "mkdir -p dist && cp index.html dist/index.html",
+    "sync": "npm run build && npx cap sync android",
+    "add:android": "npm run build && npx cap add android",
+    "open:android": "npx cap open android",
+    "run:android": "npx cap run android",
+    "apk:debug": "cd android && ./gradlew assembleDebug",
+    "apk:release": "cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.1",
+    "@capacitor/core": "^7.4.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.1"
+  }
+}

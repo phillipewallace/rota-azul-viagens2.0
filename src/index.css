@@ -1,0 +1,248 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Safe area for mobile devices */
+.safe-area-top    { padding-top: env(safe-area-inset-top); }
+.safe-area-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Hide scrollbar utility */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+
+/* ============================================================================
+   AlchemyRotas — Design System "Navy Trust"
+   ----------------------------------------------------------------------------
+   Identidade: navy profundo + acentos de aço, tipografia geométrica
+   (Space Grotesk para títulos, DM Sans para corpo), respiro generoso,
+   sombras suaves que insinuam camadas sem pesar.
+
+   Regras:
+   • TODA cor declarada aqui em HSL (sem `hsl()` em volta) para casar com
+     `hsl(var(--token))` no Tailwind e habilitar opacity-modifier (`/15`).
+   • Nada de cor chumbada em componentes — sempre via token semântico.
+   • Cada token tem par light + dark. Dark é cidadão de primeira classe.
+   ========================================================================== */
+
+@layer base {
+  :root {
+    /* — Superfícies — */
+    --background: 220 33% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --surface: 0 0% 100%;
+    --surface-muted: 220 33% 96%;
+
+    /* — Primária (navy profundo) — */
+    --primary: 220 60% 16%;
+    --primary-foreground: 220 33% 98%;
+
+    /* — Secundária (steel suave) — */
+    --secondary: 217 30% 94%;
+    --secondary-foreground: 222 47% 14%;
+
+    /* — Muted / Accent — */
+    --muted: 220 30% 95%;
+    --muted-foreground: 220 12% 42%;
+
+    --accent: 215 70% 95%;
+    --accent-foreground: 220 60% 22%;
+
+    /* — Estado — */
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --warning: 34 95% 50%;
+    --warning-foreground: 30 70% 14%;
+    --warning-soft: 40 100% 96%;
+
+    --info: 213 90% 52%;
+    --info-foreground: 215 90% 18%;
+    --info-soft: 213 100% 96%;
+
+    --success: 152 58% 38%;
+    --success-foreground: 152 60% 12%;
+    --success-soft: 150 60% 95%;
+
+    /* — Borda / Input / Ring — */
+    --border: 220 20% 89%;
+    --input: 220 20% 89%;
+    --ring: 213 90% 52%;
+
+    /* — Marca (gradiente do login/splash) — */
+    --brand: 220 65% 14%;
+    --brand-2: 218 55% 26%;
+    --brand-3: 213 70% 42%;
+    --brand-foreground: 220 33% 98%;
+
+    --gradient-brand: linear-gradient(135deg,
+      hsl(var(--brand)) 0%,
+      hsl(var(--brand-2)) 55%,
+      hsl(var(--brand-3)) 100%);
+    --gradient-subtle: linear-gradient(180deg,
+      hsl(var(--surface)) 0%,
+      hsl(var(--surface-muted)) 100%);
+
+    /* — Elevação (sombras suaves, navy-tinted) — */
+    --shadow-sm: 0 1px 2px 0 hsl(220 60% 14% / 0.04),
+                 0 1px 1px 0 hsl(220 60% 14% / 0.03);
+    --shadow-md: 0 4px 16px -4px hsl(220 60% 14% / 0.08),
+                 0 2px 6px -2px hsl(220 60% 14% / 0.05);
+    --shadow-lg: 0 16px 40px -12px hsl(220 60% 14% / 0.18),
+                 0 4px 12px -4px hsl(220 60% 14% / 0.08);
+    --shadow-brand: 0 24px 60px -20px hsl(var(--brand) / 0.45);
+
+    --radius: 0.75rem;
+
+    /* — Sidebar — */
+    --sidebar-background: 220 35% 98%;
+    --sidebar-foreground: 222 25% 26%;
+    --sidebar-primary: 220 60% 16%;
+    --sidebar-primary-foreground: 220 33% 98%;
+    --sidebar-accent: 220 30% 94%;
+    --sidebar-accent-foreground: 220 60% 22%;
+    --sidebar-border: 220 20% 88%;
+    --sidebar-ring: 213 90% 52%;
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 220 30% 96%;
+
+    --card: 222 40% 9%;
+    --card-foreground: 220 30% 96%;
+
+    --popover: 222 42% 8%;
+    --popover-foreground: 220 30% 96%;
+
+    --surface: 222 40% 9%;
+    --surface-muted: 222 35% 12%;
+
+    --primary: 213 90% 60%;
+    --primary-foreground: 222 47% 8%;
+
+    --secondary: 222 30% 16%;
+    --secondary-foreground: 220 30% 96%;
+
+    --muted: 222 30% 14%;
+    --muted-foreground: 220 14% 68%;
+
+    --accent: 217 35% 18%;
+    --accent-foreground: 213 90% 78%;
+
+    --destructive: 0 70% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --warning: 34 95% 58%;
+    --warning-foreground: 40 100% 96%;
+    --warning-soft: 34 60% 16%;
+
+    --info: 213 90% 62%;
+    --info-foreground: 213 100% 96%;
+    --info-soft: 215 60% 18%;
+
+    --success: 152 55% 50%;
+    --success-foreground: 150 60% 95%;
+    --success-soft: 152 40% 16%;
+
+    --border: 222 30% 18%;
+    --input: 222 30% 18%;
+    --ring: 213 90% 60%;
+
+    --brand: 220 70% 20%;
+    --brand-2: 218 60% 32%;
+    --brand-3: 213 80% 50%;
+    --brand-foreground: 220 30% 96%;
+
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.4);
+    --shadow-md: 0 6px 18px -6px hsl(0 0% 0% / 0.5);
+    --shadow-lg: 0 18px 42px -12px hsl(0 0% 0% / 0.6);
+    --shadow-brand: 0 24px 60px -20px hsl(var(--brand-3) / 0.4);
+
+    --sidebar-background: 222 47% 7%;
+    --sidebar-foreground: 220 20% 80%;
+    --sidebar-primary: 213 90% 60%;
+    --sidebar-primary-foreground: 222 47% 8%;
+    --sidebar-accent: 222 32% 14%;
+    --sidebar-accent-foreground: 220 30% 96%;
+    --sidebar-border: 222 30% 16%;
+    --sidebar-ring: 213 90% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+
+  /* Hierarquia tipográfica — Space Grotesk nos títulos, sempre tracking apertado. */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tightish text-foreground;
+  }
+
+  /* Numerais tabulares onde fizer diferença (tabelas, valores, KPIs).
+     Aplicar via `.tabular-nums` (utility do Tailwind) ou diretamente:    */
+  .nums-tabular { font-variant-numeric: tabular-nums; }
+
+  /* Foco visível consistente em todo o app. Radix/shadcn já usam `ring`,
+     mas garantimos que elementos nativos também respeitem. */
+  :focus-visible {
+    outline: none;
+  }
+
+  /* Seleção de texto com a cor da marca, sutil. */
+  ::selection {
+    background: hsl(var(--primary) / 0.18);
+    color: hsl(var(--foreground));
+  }
+
+  /* Scrollbar discreta, alinhada ao tema. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+    border: 2px solid hsl(var(--background));
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+}
+
+@layer utilities {
+  /* Texto com gradiente da marca — use para destaques pontuais (logo, título hero). */
+  .text-gradient-brand {
+    background: var(--gradient-brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Skeleton "shimmer" para estados de carregamento premium. */
+  .skeleton-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--muted-foreground) / 0.08) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+}
