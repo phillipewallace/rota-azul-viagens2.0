@@ -98,6 +98,13 @@ sudo -u postgres psql -d "${DB_NAME}" -tAc \
   | grep -qx t \
   || err "Migration de reconciliação das notas fiscais não foi aplicada"
 
+# Verifica a tabela de marcação manual de competências faturadas
+# (usada pelo botão "Forçar saída" na aba Pendentes do Financeiro)
+sudo -u postgres psql -d "${DB_NAME}" -tAc \
+  "SELECT to_regclass('public.erp_manual_billed_competences') IS NOT NULL" \
+  | grep -qx t \
+  || err "Migration de forçar saída de pendentes não foi aplicada"
+
 sudo -u postgres psql -d "${DB_NAME}" -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO ${DB_USER};" >/dev/null
 sudo -u postgres psql -d "${DB_NAME}" -c "GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};" >/dev/null
 sudo -u postgres psql -d "${DB_NAME}" -c "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${DB_USER};" >/dev/null 2>&1 || true

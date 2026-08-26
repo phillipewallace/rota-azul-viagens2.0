@@ -1168,20 +1168,8 @@ router.post('/force-pending-resolution', requireRole(...FIN_ROLES), async (req: 
     });
   }
 
-  try {
+    try {
     await pool.query('BEGIN');
-
-    // Cria a tabela de marcação manual se ainda não existir (idempotente)
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS erp_manual_billed_competences (
-        contract_id UUID NOT NULL REFERENCES erp_contracts(id) ON DELETE CASCADE,
-        competencia CHAR(7) NOT NULL,
-        motivo TEXT,
-        created_by TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        PRIMARY KEY (contract_id, competencia)
-      );
-    `);
 
     await pool.query(
       `INSERT INTO erp_manual_billed_competences (contract_id, competencia, motivo, created_by)
