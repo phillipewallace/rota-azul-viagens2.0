@@ -118,7 +118,7 @@ router.post('/optimize', async (req, res) => {
       optimization: 'GEOCODING_FALLBACK'
     };
 
-    logger.info('GEO', '📤 [GEOCODING FALLBACK] Enviando resposta de fallback com', response.points.length, 'pontos');
+        logger.info('GEO', '📤 [GEOCODING FALLBACK] Enviando resposta de fallback com ' + response.points.length + ' pontos');
     logger.info('GEO', '🔄 [GEOCODING FALLBACK] ========================================');
     
     res.json(response);
