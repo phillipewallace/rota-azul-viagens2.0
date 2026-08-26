@@ -1,5 +1,5 @@
 /**
- * Recibo de Locação — PDF premium, alinhado ao modelo "MICBAN".
+ * Fatura de Locação — PDF premium, alinhado ao modelo "MICBAN".
  * Cabeçalho com gradiente da empresa, dados completos e área de assinatura elegante.
  */
 import jsPDF from 'jspdf';
@@ -132,7 +132,7 @@ export async function generateReceiptPdf(
   // ---------- Título ----------
   doc.setTextColor(...PRIMARY);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text('RECIBO DE LOCAÇÃO DE BENS MÓVEIS', W / 2, 50, { align: 'center' });
+  doc.text('FATURA DE LOCAÇÃO', W / 2, 50, { align: 'center' });
 
   // ---------- Valor em destaque ----------
   const valor = Number(rec.valor || 0);
@@ -442,7 +442,7 @@ export async function generateUnifiedReceiptPdf(input: UnifiedReceiptInput) {
   // ---------- Título ----------
   doc.setTextColor(...PRIMARY);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text('RECIBO UNIFICADO DE LOCAÇÃO DE BENS MÓVEIS', W / 2, 50, { align: 'center' });
+  doc.text('FATURA UNIFICADA DE LOCAÇÃO', W / 2, 50, { align: 'center' });
 
   // ---------- Valor em destaque ----------
   doc.setFillColor(245, 247, 252);
