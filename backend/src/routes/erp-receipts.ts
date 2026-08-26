@@ -203,6 +203,11 @@ router.get('/pending', async (req, res) => {
                 AND ibc.competencia = $1
                 AND i.status = 'ativa'
           )
+          -- Competência marcada como faturada manualmente (botão "Forçar saída")
+          AND NOT EXISTS (
+             SELECT 1 FROM erp_manual_billed_competences mbc
+              WHERE mbc.contract_id = c.id AND mbc.competencia = $1
+          )
         ORDER BY c.dia_vencimento ASC`,
       [competencia]
     );
@@ -1132,6 +1137,72 @@ router.get('/summary', async (req, res) => {
       .map(r => ({ ...r, resultado: r.recebido - r.gasto }));
     res.json({ series });
   } catch (e: any) { sendError(res, e); }
+});
+
+// POST /force-pending-resolution — força a saída de um contrato+competência da
+// aba Pendentes quando já há recibo gerado, mas o vínculo não foi registrado
+// corretamente (ex.: competência faturada errada, sincronização perdida).
+//
+// Registra a competência como faturada na tabela erp_manual_billed_competences
+// (leve, sem receipt_id), que a query /pending também verifica.
+// Não altera recibos existentes, apenas marca a competência como quitada.
+router.post('/force-pending-resolution', requireRole(...FIN_ROLES), async (req: any, res) => {
+  const { contractId, competencia, motivo } = req.body || {};
+  if (!contractId) return res.status(400).json({ error: 'contractId obrigatório' });
+  if (typeof competencia !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) {
+    return res.status(400).json({ error: 'competência inválida (use YYYY-MM)' });
+  }
+  const actor = req.user?.username || req.user?.name || null;
+  const autoMotivo = (motivo && String(motivo).trim()) || 'Forçar saída de pendente — recibo já gerado';
+
+  // Verifica se já existe algum vínculo (recibo ativo ou NF ativa)
+  const existing = await pool.query(
+    `SELECT 1 FROM erp_receipt_billed_competences bc
+     JOIN erp_receipts rr ON rr.id = bc.receipt_id
+     WHERE bc.contract_id=$1 AND bc.competencia=$2 AND rr.status <> 'cancelado'`,
+    [contractId, competencia]
+  );
+  if (existing.rows[0]) {
+    return res.status(409).json({
+      error: 'Já existe um vínculo de faturamento ativo para este contrato+competência.',
+    });
+  }
+
+  try {
+    await pool.query('BEGIN');
+
+    // Cria a tabela de marcação manual se ainda não existir (idempotente)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS erp_manual_billed_competences (
+        contract_id UUID NOT NULL REFERENCES erp_contracts(id) ON DELETE CASCADE,
+        competencia CHAR(7) NOT NULL,
+        motivo TEXT,
+        created_by TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (contract_id, competencia)
+      );
+    `);
+
+    await pool.query(
+      `INSERT INTO erp_manual_billed_competences (contract_id, competencia, motivo, created_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (contract_id, competencia) DO UPDATE SET
+         motivo = EXCLUDED.motivo,
+         created_by = EXCLUDED.created_by`,
+      [contractId, competencia, autoMotivo, actor]
+    );
+
+    await pool.query('COMMIT');
+
+    logger.finance('FORCE-PENDING', `Pendência forçada para sair: ${competencia} por ${actor}`, {
+      contractId, competencia, motivo: autoMotivo,
+    });
+
+    res.json({ ok: true, message: 'Pendência marcada como faturada. Recarregue a lista para confirmar.' });
+  } catch (e: any) {
+    await pool.query('ROLLBACK');
+    sendError(res, e);
+  }
 });
 
 router.delete('/:id', requireRole('admin','manager'), async (req, res) => {

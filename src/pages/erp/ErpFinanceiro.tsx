@@ -289,8 +289,14 @@ const ErpFinanceiro: React.FC = () => {
   // diálogos
   const [payDialog, setPayDialog] = useState<Receipt | null>(null);
   const [cancelDialog, setCancelDialog] = useState<Receipt | null>(null);
-  const [reabrirDialog, setReabrirDialog] = useState<Receipt | null>(null);
+    const [reabrirDialog, setReabrirDialog] = useState<Receipt | null>(null);
   const [editVencDialog, setEditVencDialog] = useState<Receipt | null>(null);
+
+  // Diálogo "Forçar saída de pendente" — usado quando o recibo foi gerado mas o
+  // pendente não sai da aba Pendentes (vínculo não registrado no backend).
+  const [forceExitDialog, setForceExitDialog] = useState<PendingReceipt | null>(null);
+  const [forceExitMotivo, setForceExitMotivo] = useState('');
+  const [forceExitLoading, setForceExitLoading] = useState<string | null>(null);
 
   // visualização de contrato (somente leitura) — acessível de qualquer linha
   const [viewContractId, setViewContractId] = useState<string | null>(null);
@@ -1196,7 +1202,7 @@ const ErpFinanceiro: React.FC = () => {
     finally { setWorking(null); }
   };
 
-  // Reverte um recibo CANCELADO ao estado "não faturado" (volta à lista de pendentes).
+  // Reverte um recibo CANCELADO ao status "não faturado" (volta à lista de pendentes).
   const voltarParaPendentes = async (r: Receipt) => {
     const ok = await confirmDialog({
       title: 'Voltar recibo para pendentes?',
@@ -1213,6 +1219,36 @@ const ErpFinanceiro: React.FC = () => {
       await load();
     } catch (e: any) { toast.error(e.message); }
     finally { setWorking(null); }
+  };
+
+  // Força a saída de um pendente quando o recibo já foi gerado, mas o vínculo
+  // não foi registrado no backend (pendência ficou presa).
+  const handleForceExit = async () => {
+    if (!forceExitDialog) return;
+    const target = compOf(forceExitDialog);
+    setForceExitLoading(forceExitDialog.contractId);
+    try {
+      await receiptsService.forcePendingResolution(
+        forceExitDialog.contractId,
+        target,
+        { motivo: forceExitMotivo || undefined },
+      );
+      // Remoção otimista no estado local, igual ao fluxo de geração normal
+      acknowledgeGenerated(forceExitDialog.contractId, target);
+      toast.success(`Pendente de ${forceExitDialog.contractNumero} (${formatComp(target)}) marcado como faturado.`);
+      setForceExitDialog(null);
+      setForceExitMotivo('');
+      await loadPendentes();
+    } catch (e: any) {
+      const msg = String(e.message || '');
+      if (msg.includes('Já existe')) {
+        toast.info(msg);
+      } else {
+        toast.error(msg || 'Falha ao forçar saída do pendente');
+      }
+    } finally {
+      setForceExitLoading(null);
+    }
   };
 
   const toggleSel = (key: string) => {
@@ -1915,7 +1951,22 @@ const ErpFinanceiro: React.FC = () => {
                                   : <ReceiptIcon className="h-3.5 w-3.5 mr-1" />}
                                 Gerar recibo
                               </Button>
-                            </GerarReciboPopover>
+                                                        </GerarReciboPopover>
+                            {/* Botão Forçar saída: usado quando o recibo já foi gerado,
+                                mas o pendente não sai da lista (vínculo não registrado). */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setForceExitDialog(p)}
+                              disabled={forceExitLoading === p.contractId}
+                              title="Forçar saída: o recibo já foi gerado, mas o pendente está preso. Marca como faturado manualmente."
+                              className="border-orange-300 text-orange-700 hover:bg-orange-50 hover:text-orange-800"
+                            >
+                              {forceExitLoading === p.contractId
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                                : <TimerOff className="h-3.5 w-3.5 mr-1" />}
+                              Forçar saída
+                            </Button>
                           </TableCell>
                         </TableRow>
                       )}
@@ -3263,11 +3314,51 @@ const ErpFinanceiro: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      <EditVencimentoDialog
+       <EditVencimentoDialog
         receipt={editVencDialog}
         onClose={() => setEditVencDialog(null)}
         onSaved={async () => { setEditVencDialog(null); await load(); }}
       />
+
+      {/* Diálogo: Forçar saída de pendente (recibo já gerado, pendente preso) */}
+      <Dialog open={!!forceExitDialog} onOpenChange={(o) => !o && setForceExitDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Forçar saída de pendente</DialogTitle>
+            <DialogDescription>
+              O contrato <strong>{forceExitDialog?.contractNumero}</strong> — competência{' '}
+              <strong>{forceExitDialog ? formatComp(compOf(forceExitDialog)) : '—'}</strong>
+              {' '}será marcado como faturado. Use esta opção apenas quando o recibo já foi
+              gerado, mas o pendente permanece na lista devido a um problema de sincronização.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="force-exit-motivo" className="text-xs">Motivo (opcional)</Label>
+            <Textarea
+              id="force-exit-motivo"
+              value={forceExitMotivo}
+              onChange={(e) => setForceExitMotivo(e.target.value)}
+              placeholder="Ex.: vínculo não registrado, competência faturada errada, etc.…"
+              className="min-h-[70px]"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setForceExitDialog(null); setForceExitMotivo(''); }}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleForceExit}
+              disabled={forceExitLoading === forceExitDialog?.contractId}
+              className="bg-orange-600 hover:bg-orange-700 transition-colors duration-200"
+            >
+              {forceExitLoading === forceExitDialog?.contractId
+                ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                : <TimerOff className="h-4 w-4 mr-1" />}
+              Forçar saída
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Exportar recibos por período em ZIP */}
       <Dialog open={zipOpen} onOpenChange={(o) => { if (!zipBusy) setZipOpen(o); }}>

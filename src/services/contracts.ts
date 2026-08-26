@@ -348,7 +348,22 @@ export const receiptsService = {
       'GET',
       `/erp/receipts/release-competencia/preview?contractId=${encodeURIComponent(contractId)}&competencia=${encodeURIComponent(competencia)}`,
     ),
-  summary: (months = 12) =>
+     /**
+    * Força a saída de um contrato+competência da aba Pendentes quando já há
+    * recibo gerado, mas o vínculo não foi registrado corretamente. Cria um
+    * vínculo manual na tabela erp_receipt_billed_competences.
+    */
+   forcePendingResolution: (
+     contractId: string,
+     competencia: string,
+     opts?: { motivo?: string },
+   ) =>
+     req<{ ok: true; message: string }>(
+       'POST',
+       '/erp/receipts/force-pending-resolution',
+       { contractId, competencia, ...opts },
+     ),
+   summary: (months = 12) =>
     req<{ series: ReceiptsSummaryPoint[] }>('GET', `/erp/receipts/summary?months=${months}`),
 };
 
