@@ -15,11 +15,15 @@
 BEGIN;
 
 UPDATE public.erp_contracts
-   SET updated_at  = NOW()
- WHERE (
+   SET data_inicio = DATE '2026-09-01',
+       updated_at  = NOW()
+ WHERE data_inicio < DATE '2026-09-01'
+   AND (
         COALESCE(observacoes,'') LIKE '%[import:micban-ago26#%'
      OR COALESCE(observacoes,'') LIKE '%[import:dsr-set26#%'
      OR COALESCE(observacoes,'') LIKE '%[import:micban-set26#%'
+     OR COALESCE(observacoes,'') LIKE '%[paraopeba-capina-set26#%'
+     OR COALESCE(observacoes,'') LIKE '%[paraopeba-cobranca-ago26#%'
    );
 
 COMMIT;

@@ -86,6 +86,21 @@ for mig in $(ls "${PROJECT_DIR}/database/"migration-*.sql 2>/dev/null | sort); d
 done
 shopt -u nullglob
 
+# ─── 4.1) Importacoes one-shot de planilhas Excel (idempotentes, via chaves em observacoes) ─
+log "Aplicando database/import-*.sql (importacoes one-shot idempotentes)..."
+shopt -s nullglob
+for imp in $(ls "${PROJECT_DIR}/database/"import-*.sql 2>/dev/null | sort); do
+  base="$(basename "$imp")"
+  if grep -Eiq '\b(DROP[[:space:]]+TABLE|TRUNCATE|DELETE[[:space:]]+FROM)\b' "$imp"; then
+    warn "Pulando $base (contem comando destrutivo — protegendo dados)"
+    continue
+  fi
+  log "  → $base"
+  sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=1 -f "$imp" >/dev/null \
+    || warn "Falha em $base (nao interrompendo deploy — verificar manualmente)"
+done
+shopt -u nullglob
+
 # Esta estrutura é obrigatória para o Financeiro identificar de forma
 # inequívoca as competências já faturadas, inclusive as históricas.
 sudo -u postgres psql -d "${DB_NAME}" -tAc \
