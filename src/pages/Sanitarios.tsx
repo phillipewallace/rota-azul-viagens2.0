@@ -113,15 +113,29 @@ export default function Sanitarios() {
 
   const loadDetails = async (s: Sanitario) => {
     setSelected(s);
+    setDetails(null);
     setDetailsLoading(true);
     try {
       const tk = localStorage.getItem('auth_token');
       const r = await fetch(`${API_BASE_URL}/erp/sanitarios-new/${s.id}/historico-completo`, {
         headers: { Authorization: `Bearer ${tk}` }
       });
-      const data = await r.json();
-      setDetails(data);
+      const data = await r.json().catch(() => null);
+
+      // Resposta inválida (erro do backend, 404, shape inesperado) NUNCA deve
+      // quebrar a tela — mostramos listas vazias + aviso amigável em vez de crash.
+      if (!r.ok || !data || typeof data !== 'object') {
+        setDetails({ movimentacoes: [], fotos: [] });
+        toast.error(data?.error || 'Erro ao carregar histórico');
+        return;
+      }
+
+      setDetails({
+        movimentacoes: Array.isArray(data.movimentacoes) ? data.movimentacoes : [],
+        fotos: Array.isArray(data.fotos) ? data.fotos : [],
+      });
     } catch (e) {
+      setDetails({ movimentacoes: [], fotos: [] });
       toast.error('Erro ao carregar histórico');
     } finally {
       setDetailsLoading(false);
@@ -349,7 +363,7 @@ export default function Sanitarios() {
                               <div className="flex justify-center py-10"><RefreshCcw className="h-6 w-6 animate-spin text-muted-foreground" /></div>
                             ) : (
                               <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                {details?.movimentacoes.map(m => (
+                                {(details?.movimentacoes ?? []).map(m => (
                                   <div key={m.id} className="relative pl-6 border-l-2 border-slate-100 pb-4 last:pb-0">
                                     <div className="absolute -left-[9px] top-0 p-1 bg-white border-2 border-slate-100 rounded-full">
                                       <div className={`w-2 h-2 rounded-full ${m.operation_type === 'entrega' ? 'bg-blue-500' : 'bg-emerald-500'}`} />
@@ -364,7 +378,7 @@ export default function Sanitarios() {
                                     </div>
                                   </div>
                                 ))}
-                                {!details?.movimentacoes.length && <p className="text-center py-10 text-xs text-muted-foreground italic">Sem movimentações</p>}
+                                {!details?.movimentacoes?.length && <p className="text-center py-10 text-xs text-muted-foreground italic">Sem movimentações</p>}
                               </div>
                             )}
                           </TabsContent>
@@ -374,7 +388,7 @@ export default function Sanitarios() {
                               <div className="flex justify-center py-10"><RefreshCcw className="h-6 w-6 animate-spin text-muted-foreground" /></div>
                             ) : (
                               <div className="grid grid-cols-2 gap-2 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                                {details?.fotos.map(f => (
+                                {(details?.fotos ?? []).map(f => (
                                   <div key={f.id} className="group relative aspect-square rounded-xl bg-slate-50 border border-slate-100 overflow-hidden shadow-sm hover:shadow-md transition-all">
                                     <img src={f.url} className="w-full h-full object-cover cursor-pointer" onClick={() => window.open(f.url, '_blank')} />
                                     <div className="absolute inset-x-0 bottom-0 bg-black/60 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -386,7 +400,7 @@ export default function Sanitarios() {
                                     </div>
                                   </div>
                                 ))}
-                                {!details?.fotos.length && (
+                                {!details?.fotos?.length && (
                                   <div className="col-span-2 text-center py-10 text-xs text-muted-foreground italic flex flex-col items-center gap-2">
                                     <ImageIcon className="h-8 w-8 opacity-20" />
                                     Ainda não há fotos para este sanitário.

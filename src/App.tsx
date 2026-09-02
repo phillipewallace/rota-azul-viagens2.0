@@ -33,6 +33,7 @@ const ServiceOrders = lazy(() => import("./pages/ServiceOrders"));
 const ErpLayout = lazy(() => import("./pages/erp/ErpLayout"));
 const ErpDashboard = lazy(() => import("./pages/erp/ErpDashboard"));
 const ErpCompanies = lazy(() => import("./pages/erp/ErpCompanies"));
+const ErpDocuments = lazy(() => import("./pages/erp/ErpDocuments"));
 const ErpFinanceiro = lazy(() => import("./pages/erp/ErpFinanceiro"));
 const ErpContracts = lazy(() => import("./pages/erp/ErpContracts"));
 const ErpAssinatura = lazy(() => import("./pages/erp/ErpAssinatura"));
@@ -145,6 +146,7 @@ function AppShell() {
             <Route path="clientes" element={<Customers />} />
             
             <Route path="empresas" element={<ErpCompanies />} />
+            <Route path="documentos" element={<ErpDocuments />} />
             <Route path="funcionarios" element={<FuncionariosAdmin />} />
           </Route>
 

@@ -1,4 +1,4 @@
-
+﻿
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
 import { logger } from '../utils/logger';
@@ -7,7 +7,7 @@ const TAG = 'DATABASE';
 
 dotenv.config();
 
-// Pool principal para o banco da aplicação
+// Pool principal para o banco da aplicaÃ§Ã£o
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432'),
@@ -24,15 +24,15 @@ export const setupDatabase = async () => {
   try {
     logger.info(TAG, `Conectando ao banco de dados: ${process.env.DB_NAME || 'alchemy_rotas'}`);
     
-    // Testa a conexão
+    // Testa a conexÃ£o
     const client = await pool.connect();
     logger.info(TAG, `Conectado ao banco de dados '${process.env.DB_NAME || 'alchemy_rotas'}'`);
     
-    // Verifica se as extensões estão instaladas
+    // Verifica se as extensÃµes estÃ£o instaladas
     await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
     await client.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
 
-    // 🏗️ Garantir tabelas base que podem estar faltando devido a migrações parciais
+    // ðŸ—ï¸ Garantir tabelas base que podem estar faltando devido a migraÃ§Ãµes parciais
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.erp_funcionarios (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -49,7 +49,7 @@ export const setupDatabase = async () => {
       )
     `);
 
-    // 🏗️ Garantir tabela sanitarios (estoque unificado)
+    // ðŸ—ï¸ Garantir tabela sanitarios (estoque unificado)
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.sanitarios (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -70,7 +70,7 @@ export const setupDatabase = async () => {
       )
     `);
 
-    // 🏗️ Garantir tabela erp_sanitario_movimentacoes
+    // ðŸ—ï¸ Garantir tabela erp_sanitario_movimentacoes
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.erp_sanitario_movimentacoes (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -87,7 +87,7 @@ export const setupDatabase = async () => {
       )
     `);
 
-    // 🏗️ Garantir tabela erp_sanitario_fotos
+    // ðŸ—ï¸ Garantir tabela erp_sanitario_fotos
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.erp_sanitario_fotos (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -102,7 +102,7 @@ export const setupDatabase = async () => {
       )
     `);
 
-    // 🏗️ Garantir tabela erp_companies (Empresas Emissoras)
+    // ðŸ—ï¸ Garantir tabela erp_companies (Empresas Emissoras)
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.erp_companies (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -126,7 +126,7 @@ export const setupDatabase = async () => {
       )
     `);
 
-    // 🏗️ Garantir tabela erp_doc_settings_company (Numeração por Empresa)
+    // ðŸ—ï¸ Garantir tabela erp_doc_settings_company (NumeraÃ§Ã£o por Empresa)
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.erp_doc_settings_company (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -141,11 +141,47 @@ export const setupDatabase = async () => {
       )
     `);
 
-    console.log('✅ Extensões e tabelas base do PostgreSQL verificadas');
+    // ðŸ—ï¸ Garantir tabela erp_documents (Central de Documentos)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS public.erp_documents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        nome TEXT NOT NULL,
+        tipo TEXT,
+        numeracao TEXT,
+        empresa_emissora TEXT,
+        arquivo_url TEXT,
+        arquivo_nome TEXT,
+        arquivo_tamanho BIGINT,
+        arquivo_tipo TEXT,
+                observacoes TEXT,
+        created_by TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
 
-    // 🛡️ Auto-migração defensiva — garante que todas as colunas usadas pelas
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS erp_documents_nome_idx ON public.erp_documents (LOWER(nome))
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS erp_documents_empresa_idx ON public.erp_documents (LOWER(empresa_emissora))
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS erp_documents_tipo_idx ON public.erp_documents (LOWER(tipo))
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS erp_documents_created_idx ON public.erp_documents (created_at DESC)
+    `);
+    // GRANTs para o usuÃ¡rio lipe (a VPS tambÃ©m faz GRANT ALL em deploy.sh, mas
+    // garantimos aqui para ambiente local onde as migrations SQL nÃ£o rodam).
+    await client.query(`GRANT ALL ON public.erp_documents TO lipe`).catch(() => undefined);
+    await client.query(`GRANT ALL ON SEQUENCE erp_documents_id_seq TO lipe`).catch(() => undefined);
+
+    console.log('âœ… ExtensÃµes e tabelas base do PostgreSQL verificadas');
+
+    // ðŸ›¡ï¸ Auto-migraÃ§Ã£o defensiva â€” garante que todas as colunas usadas pelas
     // queries existem. 100% idempotente (ADD COLUMN IF NOT EXISTS).
-    // NÃO toca em dados existentes, apenas adiciona o que faltar.
+    // NÃƒO toca em dados existentes, apenas adiciona o que faltar.
     const ensureCols: Array<[string, string, string]> = [
       // route_points
       ['route_points', 'sanitario_numbers', 'TEXT[]'],
@@ -205,14 +241,19 @@ export const setupDatabase = async () => {
       // erp_service_orders
       ['erp_service_orders', 'funcionario_id', 'UUID REFERENCES erp_funcionarios(id)'],
       ['erp_service_orders', 'use_new_flow', 'BOOLEAN DEFAULT TRUE'],
-      ['erp_service_orders', 'numero', 'TEXT'], // Segurança extra para tabelas que podem estar inconsistentes
+      ['erp_service_orders', 'numero', 'TEXT'], // SeguranÃ§a extra para tabelas que podem estar inconsistentes
       ['erp_service_orders', 'company_id', 'UUID REFERENCES erp_companies(id)'],
       ['erp_service_orders', 'entregue_por_id', 'UUID REFERENCES erp_funcionarios(id)'],
       ['erp_service_orders', 'recolhido_por_id', 'UUID REFERENCES erp_funcionarios(id)'],
       ['erp_service_orders', 'entregue_por_nome', 'TEXT'],
       ['erp_service_orders', 'recolhido_por_nome', 'TEXT'],
       ['erp_service_orders', 'data_recolhimento_solicitada', 'DATE'],
-      ['erp_sanitario_fotos', 'funcionario_nome', 'TEXT'],
+                  ['erp_sanitario_fotos', 'funcionario_nome', 'TEXT'],
+      // sanitario_movimentacoes (tabela legada sem prefixo erp_)
+      ['sanitario_movimentacoes', 'funcionario_nome', 'TEXT'],
+      ['sanitario_movimentacoes', 'fotos', 'JSONB'],
+      ['sanitario_movimentacoes', 'estado_conservacao', 'TEXT'],
+      ['sanitario_movimentacoes', 'os_id', 'UUID REFERENCES erp_service_orders(id)'],
 
       // erp_quotes
       ['erp_quotes', 'company_id', 'UUID REFERENCES erp_companies(id)'],
@@ -265,7 +306,7 @@ export const setupDatabase = async () => {
       try {
         await client.query(`ALTER TABLE public.${table} ADD COLUMN IF NOT EXISTS ${col} ${type}`);
       } catch (e) {
-        console.warn(`⚠️ Não foi possível garantir ${table}.${col}:`, (e as Error).message);
+        console.warn(`âš ï¸ NÃ£o foi possÃ­vel garantir ${table}.${col}:`, (e as Error).message);
       }
     }
 
@@ -281,10 +322,10 @@ export const setupDatabase = async () => {
         )
       `);
     } catch (e) {
-      console.warn('⚠️ Não foi possível garantir truck_location_history:', (e as Error).message);
+      console.warn('âš ï¸ NÃ£o foi possÃ­vel garantir truck_location_history:', (e as Error).message);
     }
 
-    // 🏗️ Garantir tabelas de histórico e notas
+    // ðŸ—ï¸ Garantir tabelas de histÃ³rico e notas
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.erp_os_history (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -307,7 +348,7 @@ export const setupDatabase = async () => {
       )
     `);
 
-    // 🏗️ Garantir tabela de tipos de sanitários
+    // ðŸ—ï¸ Garantir tabela de tipos de sanitÃ¡rios
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.erp_sanitario_tipos (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -317,16 +358,16 @@ export const setupDatabase = async () => {
       )
     `);
 
-    // Inserir tipos padrão
+    // Inserir tipos padrÃ£o
     await client.query(`
       INSERT INTO public.erp_sanitario_tipos (nome, descricao)
       VALUES 
-        ('Comum', 'Sanitário químico padrão'),
-        ('PNE', 'Sanitário adaptado para pessoas com necessidades especiais'),
-        ('Pia', 'Sanitário com lavatório interno'),
-        ('Luxo', 'Sanitário de alto padrão para eventos vip'),
+        ('Comum', 'SanitÃ¡rio quÃ­mico padrÃ£o'),
+        ('PNE', 'SanitÃ¡rio adaptado para pessoas com necessidades especiais'),
+        ('Pia', 'SanitÃ¡rio com lavatÃ³rio interno'),
+        ('Luxo', 'SanitÃ¡rio de alto padrÃ£o para eventos vip'),
         ('Banho', 'Cabine de chuveiro/banho'),
-        ('Rede Esgoto', 'Conectado diretamente à rede de esgoto')
+        ('Rede Esgoto', 'Conectado diretamente Ã  rede de esgoto')
       ON CONFLICT (nome) DO NOTHING
     `);
 
@@ -342,19 +383,19 @@ export const setupDatabase = async () => {
       } catch (e) {}
     }
 
-    console.log('✅ Colunas críticas verificadas');
+    console.log('âœ… Colunas crÃ­ticas verificadas');
 
     client.release();
-    console.log('✅ Configuração do banco de dados completa');
+    console.log('âœ… ConfiguraÃ§Ã£o do banco de dados completa');
   } catch (err) {
-    console.error('❌ Erro ao configurar o banco de dados:', err);
-    console.error('🔍 Verifique se o PostgreSQL está rodando e as credenciais estão corretas');
-    console.error('📝 Para criar o banco, execute: CREATE DATABASE alchemy_rotas;');
+    console.error('âŒ Erro ao configurar o banco de dados:', err);
+    console.error('ðŸ” Verifique se o PostgreSQL estÃ¡ rodando e as credenciais estÃ£o corretas');
+    console.error('ðŸ“ Para criar o banco, execute: CREATE DATABASE alchemy_rotas;');
     throw err;
   }
 };
 
-// Função para verificar se as tabelas existem
+// FunÃ§Ã£o para verificar se as tabelas existem
 export const checkTables = async () => {
   try {
     const client = await pool.connect();
@@ -366,15 +407,15 @@ export const checkTables = async () => {
       AND table_name IN ('users', 'drivers', 'trucks', 'routes', 'schedules', 'maintenance_records')
     `);
     
-    console.log(`📊 Tabelas encontradas: ${tablesCheck.rows.map(r => r.table_name).join(', ')}`);
+    console.log(`ðŸ“Š Tabelas encontradas: ${tablesCheck.rows.map(r => r.table_name).join(', ')}`);
     
     if (tablesCheck.rows.length < 6) {
-      console.log('⚠️  Algumas tabelas estão faltando. Execute o arquivo complete-schema-fixed.sql');
+      console.log('âš ï¸  Algumas tabelas estÃ£o faltando. Execute o arquivo complete-schema-fixed.sql');
     }
     
     client.release();
   } catch (err) {
-    console.error('❌ Erro ao verificar tabelas:', err);
+    console.error('âŒ Erro ao verificar tabelas:', err);
   }
 };
 
@@ -382,3 +423,4 @@ export const checkTables = async () => {
 export const createTables = setupDatabase;
 
 export { pool };
+

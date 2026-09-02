@@ -137,6 +137,32 @@ export const erpService = {
     );
   },
   deleteSignedPdf: (id: string) => req<{ ok: true }>('DELETE', `/signed-pdfs/${id}`),
+  // documentos (Central de Documentos — arquivos de qualquer tipo)
+  listDocuments: (opts: { search?: string; tipo?: string; empresa?: string } & PageParams = {}) => {
+    const q = new URLSearchParams();
+    if (opts.search) q.set('search', opts.search);
+    if (opts.tipo) q.set('tipo', opts.tipo);
+    if (opts.empresa) q.set('empresa', opts.empresa);
+    appendPageParams(q, opts);
+    const s = q.toString();
+    const url = `/documents${s ? '?' + s : ''}`;
+    return req<any>('GET', url).then((res) => {
+      // Endpoint sempre responde paginado; defensivo para respostas array (demo/fallback).
+      if (Array.isArray(res)) {
+        return {
+          data: res,
+          total: res.length,
+          page: opts.page ?? 1,
+          pageSize: opts.pageSize ?? (res.length || 50),
+        };
+      }
+      return res as Paged<ErpDocument>;
+    });
+  },
+  listDocumentMeta: () => req<{ tipos: string[]; empresas: { empresaEmissora: string }[] }>('GET', '/documents/tipos'),
+  createDocument: (data: Partial<ErpDocument>) => req<ErpDocument>('POST', '/documents', data),
+  updateDocument: (id: string, data: Partial<ErpDocument>) => req<ErpDocument>('PUT', `/documents/${id}`, data),
+  deleteDocument: (id: string) => req<{ ok: true }>('DELETE', `/documents/${id}`),
 };
 
 export interface SignedPdf {
@@ -151,6 +177,22 @@ export interface SignedPdf {
   sizeBytes?: number;
   createdBy?: string;
   createdAt: string;
+}
+
+export interface ErpDocument {
+  id: string;
+  nome: string;
+  tipo?: string;
+  numeracao?: string;
+  empresaEmissora?: string;
+  arquivoUrl?: string;
+  arquivoNome?: string;
+  arquivoTamanho?: number;
+  arquivoTipo?: string;
+  observacoes?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export async function uploadSignedPdfBlob(

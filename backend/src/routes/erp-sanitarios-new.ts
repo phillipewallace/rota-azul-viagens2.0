@@ -13,9 +13,10 @@ router.use(requireAuth);
 router.get('/:id/historico-completo', async (req, res) => {
     const { id } = req.params;
     try {
-        // Buscar movimentações (erp_sanitario_movimentacoes)
+        // Buscar movimentações (sanitario_movimentacoes — tabela onde os dados reais são gravados)
+        // Alias driver_name → funcionario_nome para manter compatibilidade com o frontend.
         const movs = await pool.query(
-            "SELECT * FROM erp_sanitario_movimentacoes WHERE sanitario_id = $1 ORDER BY occurred_at DESC",
+            "SELECT *, COALESCE(funcionario_nome, driver_name) AS funcionario_nome FROM sanitario_movimentacoes WHERE sanitario_id = $1 ORDER BY occurred_at DESC",
             [id]
         );
 
