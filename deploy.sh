@@ -125,6 +125,87 @@ sudo -u postgres psql -d "${DB_NAME}" -c "GRANT ALL ON ALL SEQUENCES IN SCHEMA p
 sudo -u postgres psql -d "${DB_NAME}" -c "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${DB_USER};" >/dev/null 2>&1 || true
 ok "Schema + migrations aplicados (dados preservados)"
 
+# ─── 4.2) Tabelas ERP criadas via código (setupDatabase) — garantia via DDL ─
+# O backend chama setupDatabase() na inicialização, mas como redundância
+# defensiva (e para evitar erro caso o setup falhe), aplicamos o DDL aqui.
+log "Garantindo tabelas ERP (erp_documents, erp_companies, erp_sanitario_fotos, erp_sanitario_movimentacoes)…"
+sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=0 <<'SQL' >/dev/null
+CREATE TABLE IF NOT EXISTS public.erp_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome TEXT NOT NULL,
+  tipo TEXT,
+  numeracao TEXT,
+  empresa_emissora TEXT,
+  arquivo_url TEXT,
+  arquivo_nome TEXT,
+  arquivo_tamanho BIGINT,
+  arquivo_tipo TEXT,
+  observacoes TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS erp_documents_nome_idx ON public.erp_documents (LOWER(nome));
+CREATE INDEX IF NOT EXISTS erp_documents_empresa_idx ON public.erp_documents (LOWER(empresa_emissora));
+
+CREATE TABLE IF NOT EXISTS public.erp_companies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  razao_social TEXT NOT NULL,
+  nome_fantasia TEXT,
+  cnpj TEXT UNIQUE NOT NULL,
+  inscricao_estadual TEXT,
+  endereco TEXT,
+  cidade TEXT,
+  estado TEXT,
+  cep TEXT,
+  telefone TEXT,
+  email TEXT,
+  logo_url TEXT,
+  assinatura_url TEXT,
+  financeiro_contato TEXT,
+  sigla TEXT,
+  ativo BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.erp_sanitario_fotos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sanitario_id UUID REFERENCES sanitarios(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  tipo_evento TEXT,
+  estado_conservacao TEXT,
+  observacoes TEXT,
+  funcionario_id UUID,
+  funcionario_nome TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.erp_sanitario_movimentacoes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sanitario_id UUID REFERENCES sanitarios(id) ON DELETE CASCADE,
+  sanitario_numero TEXT NOT NULL,
+  operation_type TEXT NOT NULL,
+  route_id UUID,
+  route_point_id UUID,
+  customer_name TEXT,
+  address TEXT,
+  lat DOUBLE PRECISION,
+  lng DOUBLE PRECISION,
+  driver_id UUID,
+  driver_name TEXT,
+  truck_id UUID,
+  funcionario_nome TEXT,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  notes TEXT
+);
+GRANT ALL ON public.erp_documents TO public;
+GRANT ALL ON public.erp_companies TO public;
+GRANT ALL ON public.erp_sanitario_fotos TO public;
+GRANT ALL ON public.erp_sanitario_movimentacoes TO public;
+SQL
+ok "Tabelas ERP garantidas"
+
 # ─── 5) Backend: deps + build ───────────────────────────────────────────────
 log "Backend: instalando deps + compilando TS…"
 cd "${PROJECT_DIR}/backend"
