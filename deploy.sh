@@ -169,7 +169,7 @@ ok "Backend compilado"
 # ─── 5.1) Diretório de uploads (logos, PDFs assinados, fotos) ───────────────
 log "Garantindo diretório de uploads…"
 UPLOADS_DIR="${PROJECT_DIR}/backend/uploads"
-mkdir -p "${UPLOADS_DIR}/logos" "${UPLOADS_DIR}/photos" "${UPLOADS_DIR}/contracts"
+mkdir -p "${UPLOADS_DIR}/logos" "${UPLOADS_DIR}/photos" "${UPLOADS_DIR}/contracts" "${UPLOADS_DIR}/documents"
 chown -R root:root "${UPLOADS_DIR}"
 chmod -R 755 "${UPLOADS_DIR}"
 ok "Uploads OK em ${UPLOADS_DIR}"
