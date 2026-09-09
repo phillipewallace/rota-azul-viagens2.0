@@ -2,9 +2,9 @@
 module.exports = {
   apps: [
     {
-      name: 'rota-azul-backend',
+      name: 'alchemy-backend',
       script: './dist/index.js',
-      cwd: '/var/www/rota-azul-viagens/backend',
+      cwd: './backend',
       instances: 1,
       autorestart: true,
       watch: false,

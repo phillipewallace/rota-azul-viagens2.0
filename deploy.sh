@@ -41,8 +41,9 @@ err()  { echo -e "${C_R}[erro]${C_0}  $*"; exit 1; }
 # ─── 1) git pull ────────────────────────────────────────────────────────────
 if [[ -d "${PROJECT_DIR}/.git" ]] && [[ "${SKIP_GIT:-0}" != "1" ]]; then
   log "Atualizando código (git pull)…"
-  GIT_TERMINAL_PROMPT=0 git -C "${PROJECT_DIR}" pull --rebase --autostash 2>/dev/null \
-    || warn "git pull pulado (repo privado? rode com SKIP_GIT=1 ou configure SSH key / token)"
+  GIT_TERMINAL_PROMPT=0 git -C "${PROJECT_DIR}" pull --rebase --autostash \
+    || err "git pull FALHOU — sem ele o deploy usaria código ANTIGO (causa clássica de 'correção não aplicou'). Resolva o repositório na VPS (autenticação/conflito) ou rode com SKIP_GIT=1 para aceitar o código local."
+  log "Código em $(git -C "${PROJECT_DIR}" rev-parse --short HEAD) ($(git -C "${PROJECT_DIR}" log -1 --format=%s))"
 fi
 
 # ─── 2) Dependências do sistema ─────────────────────────────────────────────
@@ -94,21 +95,6 @@ for mig in $(ls "${PROJECT_DIR}/database/"migration-*.sql 2>/dev/null | sort); d
   log "  → $base"
   sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=1 -f "$mig" >/dev/null \
     || warn "Falha em $base (não interrompendo deploy — verificar manualmente)"
-done
-shopt -u nullglob
-
-# ─── 4.1) Importacoes one-shot de planilhas Excel (idempotentes, via chaves em observacoes) ─
-log "Aplicando database/import-*.sql (importacoes one-shot idempotentes)..."
-shopt -s nullglob
-for imp in $(ls "${PROJECT_DIR}/database/"import-*.sql 2>/dev/null | sort); do
-  base="$(basename "$imp")"
-  if grep -Eiq '\b(DROP[[:space:]]+TABLE|TRUNCATE|DELETE[[:space:]]+FROM)\b' "$imp"; then
-    warn "Pulando $base (contem comando destrutivo — protegendo dados)"
-    continue
-  fi
-  log "  → $base"
-  sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=1 -f "$imp" >/dev/null \
-    || warn "Falha em $base (nao interrompendo deploy — verificar manualmente)"
 done
 shopt -u nullglob
 
@@ -281,6 +267,12 @@ if [[ -z "$CUR_PUB_URL" || "$CUR_PUB_URL" == *"${SERVER_NAME}"* ]]; then
 fi
 ok "Editor Office configurado → ${OFFICE_SCHEME}://${SERVER_NAME}/office"
 
+# Verificação: garante que o backend compilado contém o código novo
+[[ -f "${PROJECT_DIR}/backend/dist/routes/carretinhas.js" ]] \
+  || err "backend/dist SEM carretinhas.js — o build não contém o código novo (repo desatualizado?)"
+[[ -f "${PROJECT_DIR}/backend/dist/routes/erp-office.js" ]] \
+  || err "backend/dist SEM erp-office.js — o build não contém o código novo (repo desatualizado?)"
+
 ok "Backend compilado"
 
 # ─── 5.1) Diretório de uploads (logos, PDFs assinados, fotos) ───────────────
@@ -345,11 +337,31 @@ npm run build
 mkdir -p "${WEB_ROOT}"
 rm -rf "${WEB_ROOT:?}/"*
 cp -r "${PROJECT_DIR}/dist/." "${WEB_ROOT}/"
-ok "Frontend publicado em ${WEB_ROOT}"
+# Verificação: garante que o bundle publicado contém o código novo
+if ! grep -rq "carretinhas" "${WEB_ROOT}/assets" 2>/dev/null; then
+  err "Bundle publicado SEM as rotas novas (carretinhas) — build/git desatualizado"
+fi
+ok "Frontend publicado em ${WEB_ROOT} (commit $(git -C "${PROJECT_DIR}" rev-parse --short HEAD))"
+
+# Espelho no caminho LEGADO — vhosts antigos podem apontar para cá; garante que
+# qualquer entrada também receba o build novo.
+LEGACY_DIST="/var/www/rota-azul-viagens/dist"
+if [[ -d "/var/www/rota-azul-viagens" ]]; then
+  mkdir -p "${LEGACY_DIST}"
+  rm -rf "${LEGACY_DIST:?}/"*
+  cp -r "${PROJECT_DIR}/dist/." "${LEGACY_DIST}/"
+  ok "Espelho legado publicado em ${LEGACY_DIST}"
+fi
 
 # ─── 7) PM2 (backend) ───────────────────────────────────────────────────────
 log "Reiniciando backend via pm2…"
 cd "${PROJECT_DIR}/backend"
+# Remove a app pm2 LEGADA deste mesmo projeto (clone antigo) — ela disputa a
+# porta 3002 e pode manter o backend antigo no ar mesmo após o deploy.
+if pm2 describe "rota-azul-backend" >/dev/null 2>&1; then
+  warn "Removendo app pm2 legada 'rota-azul-backend' (duplicata antiga deste projeto)"
+  pm2 delete "rota-azul-backend" >/dev/null || true
+fi
 pm2 describe "${SERVICE_NAME}" >/dev/null 2>&1 && pm2 reload "${SERVICE_NAME}" --update-env || pm2 start dist/index.js --name "${SERVICE_NAME}" --update-env
 pm2 save >/dev/null
 ok "pm2 OK"
@@ -401,6 +413,14 @@ NGINX
 NGINX
 } > "$VHOST"
 ln -sf "$VHOST" /etc/nginx/sites-enabled/alchemy-rotas
+# Detecta vhosts CONCORRENTES que também atendem este domínio (nginx usa o
+# primeiro que casa — um vhost antigo pode "vencer" e servir site velho).
+for f in /etc/nginx/sites-enabled/*; do
+  [[ "$(basename "$f")" == "alchemy-rotas" ]] && continue
+  if grep -qs "alchemyrotas.com" "$f"; then
+    warn "Vhost concorrente detectado: $f também atende ${SERVER_NAME}. Se o site continuar desatualizado, desative-o:  sudo rm $f && sudo nginx -t && sudo systemctl reload nginx"
+  fi
+done
 nginx -t && systemctl reload nginx
 ok "nginx recarregado"
 

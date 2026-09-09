@@ -175,10 +175,13 @@ app.use('/uploads', (req, res, next) => {
 app.use('/uploads', express.static(path.join(__dirname, '../uploads'), { maxAge: '7d' }));
 
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static('/var/www/rota-azul-viagens/dist'));
+  // Serve o frontend do PRÓPRIO repositório (funciona em dev e no build TS):
+  // dev: backend/src → ../../dist = <repo>/dist | prod: backend/dist → ../../dist = <repo>/dist
+  const FRONTEND_DIST = process.env.FRONTEND_DIST || path.join(__dirname, '../../dist');
+  app.use(express.static(FRONTEND_DIST));
   app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
-      res.sendFile('/var/www/rota-azul-viagens/dist/index.html');
+      res.sendFile(path.join(FRONTEND_DIST, 'index.html'));
     } else {
       // Rotas /api desconhecidas NÃO podem ficar sem resposta (request hang).
       res.status(404).json({ error: 'Endpoint não encontrado' });
