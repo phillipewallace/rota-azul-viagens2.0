@@ -160,6 +160,7 @@ export const erpService = {
     });
   },
   listDocumentMeta: () => req<{ tipos: string[]; empresas: { empresaEmissora: string }[] }>('GET', '/documents/tipos'),
+  getDocument: (id: string) => req<ErpDocument>('GET', `/documents/${id}`),
   createDocument: (data: Partial<ErpDocument>) => req<ErpDocument>('POST', '/documents', data),
   updateDocument: (id: string, data: Partial<ErpDocument>) => req<ErpDocument>('PUT', `/documents/${id}`, data),
   deleteDocument: (id: string) => req<{ ok: true }>('DELETE', `/documents/${id}`),

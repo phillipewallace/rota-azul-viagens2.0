@@ -1,0 +1,242 @@
+/**
+ * ERP → Documentos → Editor de Planilhas
+ * Abre .xlsx/.xls/.csv/.ods em um editor de planilha completo (Univer — MIT):
+ * fórmulas, múltiplas abas, formatação, ordenação. Ao salvar, gera o arquivo no
+ * formato original e atualiza o documento (nova versão) via /upload + PUT.
+ */
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { createUniver, LocaleType } from '@univerjs/presets';
+import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core';
+import ptBRLocale from '@univerjs/preset-sheets-core/locales/pt-BR';
+import '@univerjs/preset-sheets-core/lib/index.css';
+
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
+import { erpService, type ErpDocument } from '@/services/erp';
+import { API_BASE_URL } from '@/services/config';
+import { toAbsoluteUrl } from '@/utils/absoluteUrl';
+import { downloadFileFromUrl, formatFileSize } from '@/utils/documentFiles';
+import {
+  spreadsheetFileToSheets,
+  buildSpreadsheetBlob,
+  spreadsheetFormatFor,
+  spreadsheetMime,
+  type UniverSheetModel,
+  type SheetExport,
+} from '@/utils/spreadsheetConvert';
+import {
+  ArrowLeft, Download, FileSpreadsheet, Loader2, RefreshCw, Save,
+} from 'lucide-react';
+
+async function uploadDocumentFile(file: File): Promise<{ url: string; size: number }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const tk = localStorage.getItem('auth_token');
+  const res = await fetch(`${API_BASE_URL}/upload`, {
+    method: 'POST',
+    headers: tk ? { Authorization: `Bearer ${tk}` } : undefined,
+    body: fd,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data || !data.url) throw new Error(data?.error || 'Falha ao enviar o arquivo');
+  return { url: data.url, size: Number(data.size) || file.size };
+}
+
+const ErpDocumentEditor: React.FC = () => {
+  const { id = '' } = useParams();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  const [doc, setDoc] = useState<ErpDocument | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const univerRef = useRef<any | null>(null);
+  const apiRef = useRef<any>(null);
+  const savedNameRef = useRef('');
+
+  // Carrega o documento + o arquivo e inicializa o Univer quando o container existe.
+  useEffect(() => {
+    let cancelled = false;
+    let univerInstance: any = null;
+
+    (async () => {
+      try {
+        const d = await erpService.getDocument(id);
+        if (cancelled) return;
+        setDoc(d);
+        if (!d.arquivoUrl) throw new Error('Este documento não possui arquivo de planilha.');
+        savedNameRef.current = d.arquivoNome || `${d.nome}.xlsx`;
+
+        const res = await fetch(toAbsoluteUrl(d.arquivoUrl));
+        if (!res.ok) throw new Error('Falha ao baixar o arquivo da planilha.');
+        const sheets: UniverSheetModel[] = spreadsheetFileToSheets(await res.arrayBuffer());
+        if (!sheets.length) throw new Error('A planilha não possui abas legíveis.');
+
+        if (cancelled || !containerRef.current) return;
+        const { univer, univerAPI } = createUniver({
+          locale: LocaleType.PT_BR,
+          locales: { [LocaleType.PT_BR]: ptBRLocale },
+          presets: [
+            UniverSheetsCorePreset({ container: containerRef.current }),
+          ],
+        });
+        univerInstance = univer;
+        univerRef.current = univer;
+        apiRef.current = univerAPI;
+
+        (univerAPI as any).createUniverSheet({
+          id: `erp-doc-${d.id}`,
+          name: savedNameRef.current,
+          locale: LocaleType.PT_BR,
+          sheetOrder: sheets.map((s) => s.id),
+          styles: {},
+          sheets: Object.fromEntries(
+            sheets.map((s) => [
+              s.id,
+              {
+                id: s.id,
+                name: s.name,
+                rowCount: s.rowCount,
+                columnCount: s.columnCount,
+                cellData: s.cellData as any,
+              },
+            ]),
+          ),
+        } as any);
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || 'Erro ao abrir a planilha.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try { univerInstance?.dispose(); } catch { /* noop */ }
+      univerRef.current = null;
+      apiRef.current = null;
+    };
+  }, [id]);
+
+  const collectSheets = useCallback((): SheetExport[] => {
+    const fwb = apiRef.current?.getActiveWorkbook?.() ?? apiRef.current?.getActiveUniverSheet?.() ?? null;
+    if (!fwb) throw new Error('Editor não inicializado.');
+    return fwb.getSheets().map((ws: any) => {
+      const range = ws.getRange(0, 0, ws.getMaxRows(), ws.getMaxColumns());
+      return {
+        name: ws.getName(),
+        values: range.getValues() as unknown[][],
+        formulas: (range as any).getFormulas?.() ?? [],
+      };
+    });
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!doc) return;
+    setSaving(true);
+    try {
+      const sheets = collectSheets();
+      const format = spreadsheetFormatFor(savedNameRef.current);
+      const blob = buildSpreadsheetBlob(sheets, format);
+      const file = new File([blob], savedNameRef.current, { type: spreadsheetMime(format) });
+      const up = await uploadDocumentFile(file);
+      await erpService.updateDocument(doc.id, {
+        arquivoUrl: up.url,
+        arquivoNome: savedNameRef.current,
+        arquivoTamanho: up.size,
+        arquivoTipo: spreadsheetMime(format),
+      });
+      toast({ title: 'Planilha salva', description: `${savedNameRef.current} atualizado com sucesso.` });
+      navigate('/erp/documentos');
+    } catch (e: any) {
+      toast({
+        title: 'Erro ao salvar',
+        description: e?.message || 'Tente novamente.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSaving(false);
+    }
+  }, [collectSheets, doc, navigate, toast]);
+
+  const handleDownloadOriginal = useCallback(() => {
+    if (!doc?.arquivoUrl) return;
+    downloadFileFromUrl(doc.arquivoUrl, doc.arquivoNome || `${doc.nome}.xlsx`).catch(() =>
+      toast({ title: 'Erro ao baixar', variant: 'destructive' }),
+    );
+  }, [doc, toast]);
+
+  return (
+    <div className="h-screen flex flex-col bg-slate-50">
+      {/* Barra superior */}
+      <header className="flex items-center justify-between gap-3 px-4 md:px-6 py-3 bg-white border-b border-slate-200 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/erp/documentos')} title="Voltar">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <FileSpreadsheet className="h-5 w-5 text-emerald-600 shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-sm md:text-base font-semibold text-slate-900 truncate">
+              {doc?.nome || 'Editor de planilha'}
+            </h1>
+            {doc?.arquivoNome && (
+              <p className="text-xs text-muted-foreground truncate">
+                {doc.arquivoNome} · {formatFileSize(doc.arquivoTamanho)}
+              </p>
+            )}
+          </div>
+          {doc?.arquivoNome && (
+            <Badge variant="outline" className="hidden md:inline-flex shrink-0">
+              .{(doc.arquivoNome.split('.').pop() || '').toLowerCase()}
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={handleDownloadOriginal} disabled={!doc?.arquivoUrl}>
+            <Download className="h-4 w-4" /> <span className="hidden sm:inline">Original</span>
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={saving || loading || !!error}>
+            {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Salvar
+          </Button>
+        </div>
+      </header>
+
+      {/* Área do editor */}
+      <div className="flex-1 min-h-0 relative">
+        {loading && (
+          <div className="absolute inset-0 grid place-items-center bg-white/80 z-10">
+            <div className="flex flex-col items-center gap-3 text-slate-500">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <span className="text-sm">Abrindo planilha…</span>
+            </div>
+          </div>
+        )}
+        {error && (
+          <div className="absolute inset-0 grid place-items-center bg-white z-10 p-8 text-center">
+            <div className="max-w-md space-y-3">
+              <XLSXIcon />
+              <p className="text-sm font-medium text-slate-900">Não foi possível abrir a planilha</p>
+              <p className="text-xs text-muted-foreground">{error}</p>
+              <Button variant="outline" size="sm" onClick={() => navigate('/erp/documentos')}>
+                <ArrowLeft className="h-4 w-4" /> Voltar para Documentos
+              </Button>
+            </div>
+          </div>
+        )}
+        {/* Container obrigatório do Univer — id via ref, altura controlada pelo pai */}
+        <div ref={containerRef} className="w-full h-full" data-univer-container />
+      </div>
+    </div>
+  );
+};
+
+/** Ícone de fallback para o painel de erro. */
+const XLSXIcon = () => <FileSpreadsheet className="h-10 w-10 text-slate-300" />;
+
+export default ErpDocumentEditor;

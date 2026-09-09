@@ -61,10 +61,13 @@
     "@types/multer": "^1.4.13",
     "@types/pg": "^8.15.4",
     "@types/uuid": "^9.0.8",
+    "@univerjs/preset-sheets-core": "^0.25.1",
+    "@univerjs/presets": "^0.25.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
     "date-fns": "^3.6.0",
+    "docx-preview": "^0.4.0",
     "embla-carousel-react": "^8.3.0",
     "input-otp": "^1.2.4",
     "jspdf": "^3.0.1",
@@ -90,6 +93,7 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^9.0.1",
     "vaul": "^0.9.3",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -114,5 +118,10 @@
     "typescript-eslint": "^8.0.1",
     "vite": "^5.4.1",
     "vitest": "^4.1.9"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-win32-x64-msvc": "^1.2.8",
+    "@rollup/rollup-win32-x64-msvc": "^4.52.0",
+    "@swc/core-win32-x64-msvc": "^1.13.5"
   }
 }

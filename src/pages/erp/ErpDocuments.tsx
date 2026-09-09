@@ -14,15 +14,17 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { useNavigate } from 'react-router-dom';
 import { erpService, type ErpCompany, type ErpDocument } from '@/services/erp';
 import { API_BASE_URL } from '@/services/config';
 import { confirmDialog } from '@/lib/confirm';
 import PaginationBar from '@/components/PaginationBar';
 import DocumentPreviewDialog from '@/components/erp/DocumentPreviewDialog';
 import { formatFileSize, getPreviewKind, downloadFileFromUrl, previewKindLabels } from '@/utils/documentFiles';
+import { SPREADSHEET_EXTS, OFFICE_DOC_EXTS } from '@/utils/spreadsheetConvert';
 import {
   Plus, Search, RefreshCw, Trash2, Pencil, Eye, Download, FolderOpen, X,
-  FileText, Filter, UploadCloud, FileQuestion,
+  FileText, Filter, UploadCloud, FileQuestion, FileEdit,
 } from 'lucide-react';
 
 const TIPO_SUGGESTIONS = [
@@ -59,6 +61,8 @@ async function uploadDocumentFile(file: File): Promise<{ url: string; size: numb
 
 const ErpDocuments: React.FC = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const fileExtension = (name?: string | null) => (name ? name.split('.').pop()!.toLowerCase() : '');
   const [items, setItems] = useState<ErpDocument[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -248,6 +252,15 @@ const ErpDocuments: React.FC = () => {
     }
   };
 
+  const handleEditFile = (d: ErpDocument) => {
+    const ext = fileExtension(d.arquivoNome);
+    if (SPREADSHEET_EXTS.includes(ext)) {
+      navigate(`/erp/documentos/${d.id}/editar`);
+    } else {
+      navigate(`/erp/documentos/${d.id}/office`);
+    }
+  };
+
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -346,6 +359,8 @@ const ErpDocuments: React.FC = () => {
                 {items.map((d) => {
                   const kind = getPreviewKind(d.arquivoNome, d.arquivoTipo);
                   const kindLabel = previewKindLabels[kind];
+                  const ext = fileExtension(d.arquivoNome);
+                  const canEditFile = !!d.arquivoUrl && (SPREADSHEET_EXTS.includes(ext) || OFFICE_DOC_EXTS.includes(ext));
                   return (
                     <tr key={d.id} className="border-t border-slate-100 hover:bg-slate-50/60">
                       <td className="px-4 py-3">
@@ -383,6 +398,15 @@ const ErpDocuments: React.FC = () => {
                             onClick={() => setPreviewDoc(d)}>
                             <Eye className="h-4 w-4" />
                           </Button>
+                          {canEditFile && (
+                            <Button
+                              variant="ghost" size="sm"
+                              title={SPREADSHEET_EXTS.includes(ext) ? 'Editar planilha' : 'Editar documento'}
+                              onClick={() => handleEditFile(d)}
+                            >
+                              <FileEdit className="h-4 w-4 text-emerald-600" />
+                            </Button>
+                          )}
                           <Button variant="ghost" size="sm" title="Baixar" disabled={!d.arquivoUrl}
                             onClick={() => handleDownload(d)}>
                             <Download className="h-4 w-4" />

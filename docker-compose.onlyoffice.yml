@@ -1,0 +1,30 @@
+# OnlyOffice Document Server — edição de Word/Excel/PPT dentro do Rota Azul Viagens.
+#
+# ⚠️ ATENÇÃO: o `sudo ./deploy.sh` já instala e configura o OnlyOffice
+# AUTOMATICAMENTE (docker + segredo JWT + proxy no mesmo domínio). Este
+# docker-compose é apenas a alternativa MANUAL para quem não usa o deploy.sh.
+#
+# Subir manualmente:  docker compose -f docker-compose.onlyoffice.yml up -d
+# Depois configure no backend/.env:
+#   ONLYOFFICE_PUBLIC_URL=https://office.suadominio.com   (ou http://IP-DO-SERVIDOR:8080)
+#   PUBLIC_BASE_URL=https://api.suadominio.com            (URL pública do backend)
+#   ONLYOFFICE_JWT_SECRET=troque-este-segredo
+services:
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: rota-azul-onlyoffice
+    restart: unless-stopped
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=troque-este-segredo
+    ports:
+      - "8080:80"
+    volumes:
+      - onlyoffice_logs:/var/log/onlyoffice
+      - onlyoffice_data:/var/www/onlyoffice/Data
+      - onlyoffice_db:/var/lib/postgresql
+
+volumes:
+  onlyoffice_logs:
+  onlyoffice_data:
+  onlyoffice_db:

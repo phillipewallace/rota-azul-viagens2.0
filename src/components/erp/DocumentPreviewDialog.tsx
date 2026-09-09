@@ -4,8 +4,10 @@
  * Para Office (.docx/.xlsx/.pptx) e .zip extrai o conteúdo com JSZip.
  * Para qualquer outro formato mostra um painel de metadados com "Abrir" e "Baixar".
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
+import { useNavigate } from 'react-router-dom';
+import { renderAsync } from 'docx-preview';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -17,9 +19,10 @@ import {
   getPreviewKind, formatFileSize, downloadFileFromUrl, previewKindLabels, fileExtension,
   type PreviewKind,
 } from '@/utils/documentFiles';
+import { SPREADSHEET_EXTS, OFFICE_DOC_EXTS } from '@/utils/spreadsheetConvert';
 import {
   FileText, FileImage, FileVideo, FileAudio, FileArchive, FileSpreadsheet, FileType,
-  Download, ExternalLink, Loader2, FileQuestion,
+  Download, ExternalLink, Loader2, FileQuestion, FileEdit,
 } from 'lucide-react';
 
 const kindIcon = (kind: PreviewKind) => {
@@ -119,12 +122,8 @@ async function loadPreviewContent(doc: ErpDocument, kind: PreviewKind): Promise<
   const res = await fetch(url);
   if (!res.ok) throw new Error('Falha ao carregar o arquivo');
 
-  if (kind === 'office' && ['docx', 'xlsx', 'pptx'].includes(ext)) {
+  if (kind === 'office' && ['xlsx', 'pptx'].includes(ext)) {
     const zip = await JSZip.loadAsync(await res.arrayBuffer());
-    if (ext === 'docx') {
-      const xml = await zip.file('word/document.xml')?.async('string');
-      return xml ? stripXml(xml) : '';
-    }
     if (ext === 'xlsx') {
       const sharedXml = await zip.file('xl/sharedStrings.xml')?.async('string');
       const sheetXml = await zip.file('xl/worksheets/sheet1.xml')?.async('string');
@@ -209,12 +208,18 @@ const DocumentPreviewDialog: React.FC<DialogProps> = ({ open, doc, onOpenChange 
   const [loadingText, setLoadingText] = useState(false);
   const [textContent, setTextContent] = useState('');
   const [previewError, setPreviewError] = useState('');
+  const docxPreviewRef = useRef<HTMLDivElement | null>(null);
+  const navigate = useNavigate();
+
+  const docExt = fileExtension(doc?.arquivoNome);
+  const isDocx = kind === 'office' && docExt === 'docx';
 
   useEffect(() => {
     setTextContent('');
     setPreviewError('');
     if (!open || !doc || !doc.arquivoUrl) return;
     if (!['text', 'office', 'archive'].includes(kind)) return;
+    if (kind === 'office' && fileExtension(doc.arquivoNome) === 'docx') return; // docx usa docx-preview
     let cancelled = false;
     setLoadingText(true);
     loadPreviewContent(doc, kind)
@@ -224,11 +229,49 @@ const DocumentPreviewDialog: React.FC<DialogProps> = ({ open, doc, onOpenChange 
     return () => { cancelled = true; };
   }, [open, doc, kind]);
 
+  // Prévia .docx de alta fidelidade via docx-preview.
+  useEffect(() => {
+    if (!open || !isDocx || !doc?.arquivoUrl) return;
+    const host = docxPreviewRef.current;
+    if (!host) return;
+    host.innerHTML = '';
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(toAbsoluteUrl(doc.arquivoUrl));
+        if (!res.ok) throw new Error('Falha ao carregar o arquivo');
+        const buffer = await res.arrayBuffer();
+        if (cancelled || !docxPreviewRef.current) return;
+        await renderAsync(buffer, docxPreviewRef.current, undefined, {
+          className: 'docx-preview',
+          inWrapper: true,
+          ignoreWidth: false,
+          ignoreHeight: true,
+          useBase64URL: true,
+          breakPages: true,
+        });
+      } catch (e: any) {
+        if (!cancelled) setPreviewError(e?.message || 'Não foi possível gerar a prévia do .docx.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, isDocx, doc]);
+
   if (!open || !doc) return null;
 
   const url = toAbsoluteUrl(doc.arquivoUrl);
   const hasExtracted = textContent.length > 0;
-  const canExtract = kind === 'text' || kind === 'office' || kind === 'archive';
+  const canExtract = (kind === 'text' || kind === 'office' || kind === 'archive') && !isDocx;
+  const canEditFile = !!doc.arquivoUrl && (SPREADSHEET_EXTS.includes(docExt) || OFFICE_DOC_EXTS.includes(docExt));
+
+  const handleEditFile = () => {
+    onOpenChange(false);
+    navigate(
+      SPREADSHEET_EXTS.includes(docExt)
+        ? `/erp/documentos/${doc.id}/editar`
+        : `/erp/documentos/${doc.id}/office`,
+    );
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -273,6 +316,21 @@ const DocumentPreviewDialog: React.FC<DialogProps> = ({ open, doc, onOpenChange 
             </div>
           )}
 
+          {isDocx && (
+            <div className="p-4">
+              <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
+                <div className="px-4 py-2 border-b bg-slate-50 text-xs text-muted-foreground">
+                  Pré-visualização do documento
+                </div>
+                {previewError ? (
+                  <div className="p-8 text-center text-xs text-amber-600">{previewError}</div>
+                ) : (
+                  <div ref={docxPreviewRef} className="p-4 min-h-[380px]" />
+                )}
+              </div>
+            </div>
+          )}
+
           {canExtract && (
             loadingText ? (
               <div className="grid place-items-center min-h-[420px] p-8 text-muted-foreground">
@@ -309,6 +367,15 @@ const DocumentPreviewDialog: React.FC<DialogProps> = ({ open, doc, onOpenChange 
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {canEditFile && (
+              <Button
+                size="sm"
+                onClick={handleEditFile}
+                title="Editar arquivo dentro do sistema"
+              >
+                <FileEdit className="h-4 w-4" /> Editar
+              </Button>
+            )}
             {url && (
               <Button
                 size="sm"

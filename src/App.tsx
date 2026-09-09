@@ -31,6 +31,8 @@ const Carretinhas = lazy(() => import("./pages/Carretinhas"));
 const ErpQuotes = lazy(() => import("./pages/ErpQuotes"));
 const ServiceOrders = lazy(() => import("./pages/ServiceOrders"));
 const ErpLayout = lazy(() => import("./pages/erp/ErpLayout"));
+const ErpDocumentEditor = lazy(() => import("./pages/erp/ErpDocumentEditor"));
+const ErpOfficeEditor = lazy(() => import("./pages/erp/ErpOfficeEditor"));
 const ErpDashboard = lazy(() => import("./pages/erp/ErpDashboard"));
 const ErpCompanies = lazy(() => import("./pages/erp/ErpCompanies"));
 const ErpDocuments = lazy(() => import("./pages/erp/ErpDocuments"));
@@ -134,6 +136,7 @@ function AppShell() {
           <Route path="/funcionarios" element={<Protected><FuncionariosAdmin /></Protected>} />
           <Route path="/sanitarios" element={<Protected><Sanitarios /></Protected>} />
           <Route path="/rotas-concluidas" element={<Protected><CompletedRoutes /></Protected>} />
+          <Route path="/carretinhas" element={<Protected><Carretinhas /></Protected>} />
 
           <Route path="/erp" element={<Protected><ErpLayout /></Protected>}>
             <Route index element={<ErpDashboard />} />
@@ -147,6 +150,8 @@ function AppShell() {
             
             <Route path="empresas" element={<ErpCompanies />} />
             <Route path="documentos" element={<ErpDocuments />} />
+            <Route path="documentos/:id/editar" element={<ErpDocumentEditor />} />
+            <Route path="documentos/:id/office" element={<ErpOfficeEditor />} />
             <Route path="funcionarios" element={<FuncionariosAdmin />} />
           </Route>
 

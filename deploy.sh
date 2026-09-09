@@ -13,6 +13,10 @@
 #   5) Instala deps + builda backend (TS) + builda frontend (Vite)
 #   6) Publica frontend em /var/www/alchemyrotas
 #   7) Cria/garante vhost nginx e reinicia pm2 + nginx
+#   8) Editor de documentos Office: sobe OnlyOffice (docker) automaticamente,
+#      gera o segredo JWT, grava as variáveis no backend/.env e publica no
+#      mesmo domínio (https://<domínio>/office) — zero configuração manual.
+#      (Editor de PLANILHAS é 100% interno, não depende do OnlyOffice.)
 ###############################################################################
 set -euo pipefail
 
@@ -50,6 +54,13 @@ fi
 command -v pm2   >/dev/null || npm i -g pm2 >/dev/null
 command -v psql  >/dev/null || { log "Instalando PostgreSQL…"; apt-get update && apt-get install -y postgresql postgresql-contrib; systemctl enable --now postgresql; }
 command -v nginx >/dev/null || { log "Instalando nginx…"; apt-get install -y nginx; systemctl enable --now nginx; }
+# Docker: usado pelo editor de documentos Office (OnlyOffice) embutido
+if ! command -v docker >/dev/null; then
+  log "Instalando Docker (editor de documentos Office)…"
+  apt-get update >/dev/null && apt-get install -y docker.io \
+    || warn "Falha ao instalar Docker — o editor de Word ficará no modo básico (baixar/reenviar)"
+fi
+systemctl enable --now docker >/dev/null 2>&1 || true
 ok "Dependências do sistema OK"
 
 # ─── 3) Banco: usuário, DB, senha, permissões ───────────────────────────────
@@ -245,6 +256,31 @@ else
   fi
 fi
 
+# ─── 5.0.1) Editor Office (OnlyOffice) — variáveis automáticas ──────────────
+# O segredo JWT é gerado uma única vez e reaproveitado nos deploys seguintes.
+# As URLs usam o MESMO domínio do site (via proxy /office/ no nginx), então
+# funciona com HTTPS sem configurar DNS/certificado extras.
+SSL_CERT_EARLY="/etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem"
+OFFICE_SCHEME="http"
+[[ -f "$SSL_CERT_EARLY" ]] && OFFICE_SCHEME="https"
+env_upsert() { local k="$1" v="$2"; if grep -qE "^${k}=" .env; then sed -i "s|^${k}=.*|${k}=${v}|" .env; else echo "${k}=${v}" >> .env; fi; }
+OFFICE_JWT=$(grep -E '^ONLYOFFICE_JWT_SECRET=' .env | head -1 | cut -d= -f2-)
+if [[ -z "$OFFICE_JWT" ]]; then
+  OFFICE_JWT="$(openssl rand -hex 32)"
+  env_upsert ONLYOFFICE_JWT_SECRET "${OFFICE_JWT}"
+fi
+# Só define/atualiza a URL se estiver vazia ou apontando para este mesmo domínio
+# (não sobrescreve configuração manual de quem usou outro endereço/servidor).
+CUR_OFFICE_URL=$(grep -E '^ONLYOFFICE_PUBLIC_URL=' .env | head -1 | cut -d= -f2-)
+if [[ -z "$CUR_OFFICE_URL" || "$CUR_OFFICE_URL" == *"${SERVER_NAME}/office"* ]]; then
+  env_upsert ONLYOFFICE_PUBLIC_URL "${OFFICE_SCHEME}://${SERVER_NAME}/office"
+fi
+CUR_PUB_URL=$(grep -E '^PUBLIC_BASE_URL=' .env | head -1 | cut -d= -f2-)
+if [[ -z "$CUR_PUB_URL" || "$CUR_PUB_URL" == *"${SERVER_NAME}"* ]]; then
+  env_upsert PUBLIC_BASE_URL "${OFFICE_SCHEME}://${SERVER_NAME}"
+fi
+ok "Editor Office configurado → ${OFFICE_SCHEME}://${SERVER_NAME}/office"
+
 ok "Backend compilado"
 
 # ─── 5.1) Diretório de uploads (logos, PDFs assinados, fotos) ───────────────
@@ -254,6 +290,52 @@ mkdir -p "${UPLOADS_DIR}/logos" "${UPLOADS_DIR}/photos" "${UPLOADS_DIR}/contract
 chown -R root:root "${UPLOADS_DIR}"
 chmod -R 755 "${UPLOADS_DIR}"
 ok "Uploads OK em ${UPLOADS_DIR}"
+
+# ─── 5.2) OnlyOffice Document Server (editor de Word/PPT embutido) ──────────
+# Container docker acessível apenas localmente (127.0.0.1:8080) — o nginx
+# publica em https://<domínio>/office/. Idempotente: recria o container só
+# se o segredo JWT mudou. Se o docker/OnlyOffice falhar, o deploy segue
+# normalmente e o editor de Word cai no modo básico (prévia + baixar/reenviar).
+log "Editor de documentos Office (OnlyOffice)…"
+OFFICE_JWT=$(grep -E '^ONLYOFFICE_JWT_SECRET=' .env | head -1 | cut -d= -f2-)
+CTR="rota-azul-onlyoffice"
+if command -v docker >/dev/null && systemctl is-active --quiet docker; then
+  if docker ps -a --format '{{.Names}}' | grep -qx "$CTR"; then
+    RUNNING=$(docker inspect -f '{{.State.Running}}' "$CTR" 2>/dev/null || echo "false")
+    CTR_JWT=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CTR" 2>/dev/null | grep '^JWT_SECRET=' | cut -d= -f2-)
+    if [[ "$RUNNING" == "true" && "$CTR_JWT" == "$OFFICE_JWT" ]]; then
+      ok "OnlyOffice já em execução"
+    else
+      log "Recriando container do OnlyOffice (segredo/configuração atualizados)…"
+      docker rm -f "$CTR" >/dev/null
+      docker run -d --name "$CTR" --restart unless-stopped -p 127.0.0.1:8080:80 \
+        -e JWT_ENABLED=true -e JWT_SECRET="${OFFICE_JWT}" \
+        onlyoffice/documentserver:latest >/dev/null \
+        || warn "Falha ao recriar OnlyOffice — editor de Word no modo básico"
+    fi
+  else
+    log "Baixando e iniciando OnlyOffice (primeira vez — a imagem tem ~2 GB, pode demorar)…"
+    docker run -d --name "$CTR" --restart unless-stopped -p 127.0.0.1:8080:80 \
+      -e JWT_ENABLED=true -e JWT_SECRET="${OFFICE_JWT}" \
+      onlyoffice/documentserver:latest >/dev/null \
+      || warn "Falha ao iniciar OnlyOffice — editor de Word no modo básico"
+  fi
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CTR"; then
+    log "Aguardando OnlyOffice ficar pronto (até 3 min)…"
+    OFFICE_READY=0
+    for _ in $(seq 1 36); do
+      if curl -sf http://127.0.0.1:8080/healthcheck 2>/dev/null | grep -qi true; then OFFICE_READY=1; break; fi
+      sleep 5
+    done
+    if [[ "$OFFICE_READY" == "1" ]]; then
+      ok "OnlyOffice pronto (editor de Word ativo)"
+    else
+      warn "OnlyOffice ainda inicializando — em poucos minutos ele responde sozinho"
+    fi
+  fi
+else
+  warn "Docker indisponível — editor de Word no modo básico (planilhas seguem 100% funcionais)"
+fi
 
 # ─── 6) Frontend: build + publicar ──────────────────────────────────────────
 log "Frontend: instalando deps + buildando (Vite)…"
@@ -294,8 +376,26 @@ NGINX
   fi
   cat <<NGINX
   root ${WEB_ROOT}; index index.html; client_max_body_size 25M;
-  location /api/ { proxy_pass http://127.0.0.1:3002/api/; proxy_set_header Host \$host; }
-  location /uploads/ { proxy_pass http://127.0.0.1:3002/uploads/; }
+  location /api/ { proxy_pass http://127.0.0.1:3002/api/; proxy_set_header Host \$host; proxy_set_header X-Forwarded-Proto \$scheme; }
+  location /uploads/ { proxy_pass http://127.0.0.1:3002/uploads/; proxy_set_header Host \$host; proxy_set_header X-Forwarded-Proto \$scheme; }
+  # Editor de documentos Office (OnlyOffice) — mesmo domínio, funciona com HTTPS
+  location /office/ {
+    rewrite /office/(.*) /\$1 break;
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-Host \$host/office;
+    proxy_set_header Accept-Encoding "";
+    proxy_cache_bypass \$http_upgrade;
+    client_max_body_size 100M;
+    sub_filter_once off;
+    sub_filter_types application/javascript application/json text/html;
+    sub_filter '="/' '="/office/';
+  }
   location / { try_files \$uri /index.html; }
 }
 NGINX

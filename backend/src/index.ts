@@ -44,6 +44,7 @@ import carretinhasRoutes from './routes/carretinhas';
 import erpFuncionariosRoutes from './routes/erp-funcionarios';
 import erpSanitariosNewRoutes from './routes/erp-sanitarios-new';
 import erpDocumentsRoutes from './routes/erp-documents';
+import erpOfficeRoutes from './routes/erp-office';
 import appFuncionariosRoutes from './routes/app-funcionarios';
 import erpOsHistoryRoutes from './routes/erp-os-history';
 import erpOsRecolhimentoRoutes from './routes/erp-os-recolhimento';
@@ -159,6 +160,7 @@ app.use('/api/checklists', checklistsRoutes);
 app.use('/api/carretinhas', carretinhasRoutes);
 app.use('/api/erp/sanitarios-new', erpSanitariosNewRoutes);
 app.use('/api/erp/documents', erpDocumentsRoutes);
+app.use('/api/office', erpOfficeRoutes);
 app.use('/api/erp/service-orders', erpOsHistoryRoutes);
 app.use('/api/erp/service-orders', erpOsRecolhimentoRoutes);
 
