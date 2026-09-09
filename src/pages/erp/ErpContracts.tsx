@@ -271,6 +271,7 @@ const ErpContracts: React.FC = () => {
       horaEntrega: full.horaEntrega || null,
       localEvento: full.localEvento || null,
       enderecoEntrega: full.localEvento || (full.customerSnapshot?.address ?? null),
+      descricao: full.descricao || null,
       observacoes: full.observacoes || null,
       total: Number(full.valorTotalEvento ?? full.valorMensal ?? 0),
       frete: Number(full.frete || 0),

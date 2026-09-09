@@ -115,7 +115,24 @@ router.get('/:id', async (req, res) => {
          WHERE c.id = $1`, [req.params.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'não encontrado' });
-    res.json(r.rows[0]);
+    const row = r.rows[0];
+    // Itens do orçamento vinculado (via OS) → para que o gerador do contrato
+    // mostre EXACTAMENTE o que está sendo locado (produto, qtd, valores).
+    let items: any[] = [];
+    if (row.osId) {
+      const osRow = await pool.query(`SELECT quote_id FROM erp_service_orders WHERE id = $1`, [row.osId]);
+      if (osRow.rows[0]?.quote_id) {
+        const it = await pool.query(
+          `SELECT id, produto, descricao, quantidade,
+                  valor_unitario AS "valorUnitario", valor_total AS "valorTotal",
+                  ordem, is_sanitario AS "isSanitario", is_generic_service AS "isGenericService"
+             FROM erp_quote_items WHERE quote_id = $1
+            ORDER BY ordem ASC, id ASC`, [osRow.rows[0].quote_id]);
+        items = it.rows;
+      }
+    }
+    row.items = items;
+    res.json(row);
   } catch (e: any) { sendError(res, e); }
 });
 

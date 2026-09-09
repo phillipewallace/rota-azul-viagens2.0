@@ -133,6 +133,10 @@ export interface ContractSource {
   numero: string;
   tipo: 'orcamento' | 'os';
   tipoContrato?: 'locacao' | 'evento' | 'obra';
+  /** Texto descritivo do objeto (campo `descricao` do contrato/orçamento/OS).
+   *  Usado como fallback quando não há itens estruturados (ex.: contratos
+   *  importados) para que "o que está sendo locado" NUNCA fique genérico. */
+  descricao?: string | null;
   modalidade?: 'diaria' | 'mensal';
   dataEmissao?: string | null;
   dataInicio?: string | null;
@@ -209,6 +213,19 @@ function buildContext(src: ContractSource): Record<string, string> {
     if (partes.length === 1) objetoDesc = partes[0];
     else if (partes.length === 2) objetoDesc = `${partes[0]} e ${partes[1]}`;
     else if (partes.length > 2) objetoDesc = partes.slice(0, -1).join(', ') + ', e ' + partes[partes.length - 1];
+  }
+  if (!objetoDesc) {
+    // Fallback real: usa o texto descritivo do objeto (contratos importados /
+    // manuais) — NUNCA mostrar genérico como "sanitário químico" se há descrição.
+    const textoObjeto = String(src.descricao || src.observacoes || '').trim();
+    if (textoObjeto) {
+      objetoDesc = textoObjeto
+        .split('\n')[0]                              // 1ª línea
+        .replace(/^Objeto(?: do contrato)?[:\-–—]*\s*/i, '')
+        .replace(/^(?:\.\.\.|\*\*\*|\-+)\s*/g, '')
+        .replace(/\s+/g, ' ')                        // colapsa espacios
+        .trim();
+    }
   }
   if (!objetoDesc) {
     const q = totalQtd || 1;
