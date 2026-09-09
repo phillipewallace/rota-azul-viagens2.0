@@ -35,6 +35,8 @@ log()  { echo -e "${C_B}[deploy]${C_0} $*"; }
 ok()   { echo -e "${C_G}[ok]${C_0}    $*"; }
 warn() { echo -e "${C_Y}[warn]${C_0}  $*"; }
 err()  { echo -e "${C_R}[erro]${C_0}  $*"; exit 1; }
+# Nunca morrer em silêncio: se qualquer comando falhar (set -e), imprime linha e rc.
+trap 'rc=$?; echo -e "${C_R}[erro]${C_0}  deploy.sh linha ${LINENO} falhou (rc=${rc})" >&2' ERR
 
 [[ $EUID -eq 0 ]] || err "Rode com sudo: sudo ./deploy.sh"
 
@@ -230,7 +232,7 @@ EOF
 else
   # Segurança: se o JWT_SECRET ainda for o placeholder/inseguro herdado,
   # rotaciona automaticamente para um valor forte (invalida sessões antigas).
-  CURRENT_JWT=$(grep -E '^JWT_SECRET=' .env | head -1 | cut -d= -f2-)
+  CURRENT_JWT=$(grep -E '^JWT_SECRET=' .env | head -1 | cut -d= -f2- || true)
   if [[ -z "$CURRENT_JWT" || "$CURRENT_JWT" == "your-super-secret-jwt-key" || "$CURRENT_JWT" == "your-secret-key-change-in-production" || ${#CURRENT_JWT} -lt 32 ]]; then
     NEW_JWT="$(openssl rand -hex 48)"
     if grep -qE '^JWT_SECRET=' .env; then
@@ -250,18 +252,18 @@ SSL_CERT_EARLY="/etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem"
 OFFICE_SCHEME="http"
 [[ -f "$SSL_CERT_EARLY" ]] && OFFICE_SCHEME="https"
 env_upsert() { local k="$1" v="$2"; if grep -qE "^${k}=" .env; then sed -i "s|^${k}=.*|${k}=${v}|" .env; else echo "${k}=${v}" >> .env; fi; }
-OFFICE_JWT=$(grep -E '^ONLYOFFICE_JWT_SECRET=' .env | head -1 | cut -d= -f2-)
+OFFICE_JWT=$(grep -E '^ONLYOFFICE_JWT_SECRET=' .env | head -1 | cut -d= -f2- || true)
 if [[ -z "$OFFICE_JWT" ]]; then
   OFFICE_JWT="$(openssl rand -hex 32)"
   env_upsert ONLYOFFICE_JWT_SECRET "${OFFICE_JWT}"
 fi
 # Só define/atualiza a URL se estiver vazia ou apontando para este mesmo domínio
 # (não sobrescreve configuração manual de quem usou outro endereço/servidor).
-CUR_OFFICE_URL=$(grep -E '^ONLYOFFICE_PUBLIC_URL=' .env | head -1 | cut -d= -f2-)
+CUR_OFFICE_URL=$(grep -E '^ONLYOFFICE_PUBLIC_URL=' .env | head -1 | cut -d= -f2- || true)
 if [[ -z "$CUR_OFFICE_URL" || "$CUR_OFFICE_URL" == *"${SERVER_NAME}/office"* ]]; then
   env_upsert ONLYOFFICE_PUBLIC_URL "${OFFICE_SCHEME}://${SERVER_NAME}/office"
 fi
-CUR_PUB_URL=$(grep -E '^PUBLIC_BASE_URL=' .env | head -1 | cut -d= -f2-)
+CUR_PUB_URL=$(grep -E '^PUBLIC_BASE_URL=' .env | head -1 | cut -d= -f2- || true)
 if [[ -z "$CUR_PUB_URL" || "$CUR_PUB_URL" == *"${SERVER_NAME}"* ]]; then
   env_upsert PUBLIC_BASE_URL "${OFFICE_SCHEME}://${SERVER_NAME}"
 fi
@@ -289,12 +291,12 @@ ok "Uploads OK em ${UPLOADS_DIR}"
 # se o segredo JWT mudou. Se o docker/OnlyOffice falhar, o deploy segue
 # normalmente e o editor de Word cai no modo básico (prévia + baixar/reenviar).
 log "Editor de documentos Office (OnlyOffice)…"
-OFFICE_JWT=$(grep -E '^ONLYOFFICE_JWT_SECRET=' .env | head -1 | cut -d= -f2-)
+OFFICE_JWT=$(grep -E '^ONLYOFFICE_JWT_SECRET=' .env | head -1 | cut -d= -f2- || true)
 CTR="rota-azul-onlyoffice"
 if command -v docker >/dev/null && systemctl is-active --quiet docker; then
   if docker ps -a --format '{{.Names}}' | grep -qx "$CTR"; then
     RUNNING=$(docker inspect -f '{{.State.Running}}' "$CTR" 2>/dev/null || echo "false")
-    CTR_JWT=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CTR" 2>/dev/null | grep '^JWT_SECRET=' | cut -d= -f2-)
+    CTR_JWT=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CTR" 2>/dev/null | grep '^JWT_SECRET=' | cut -d= -f2- || true)
     if [[ "$RUNNING" == "true" && "$CTR_JWT" == "$OFFICE_JWT" ]]; then
       ok "OnlyOffice já em execução"
     else
