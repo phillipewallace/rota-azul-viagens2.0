@@ -286,43 +286,104 @@ chmod -R 755 "${UPLOADS_DIR}"
 ok "Uploads OK em ${UPLOADS_DIR}"
 
 # ─── 5.2) OnlyOffice Document Server (editor de Word/PPT embutido) ──────────
-# Container docker acessível apenas localmente (127.0.0.1:8080) — o nginx
+# Container docker acessível apenas localmente (127.0.0.1:PORTA) — o nginx
 # publica em https://<domínio>/office/. Idempotente: recria o container só
-# se o segredo JWT mudou. Se o docker/OnlyOffice falhar, o deploy segue
-# normalmente e o editor de Word cai no modo básico (prévia + baixar/reenviar).
+# se o segredo JWT mudou. Porta estável 8080..8095 com retry automático:
+# se a porta estiver ocupada, tenta a próxima sozinho. Se o docker/OnlyOffice
+# falhar, o deploy segue normalmente e o editor de Word cai no modo básico
+# (prévia + baixar/reenviar).
 log "Editor de documentos Office (OnlyOffice)…"
 OFFICE_JWT=$(grep -E '^ONLYOFFICE_JWT_SECRET=' .env | head -1 | cut -d= -f2- || true)
 CTR="rota-azul-onlyoffice"
+OFFICE_PORT_STATE="${PROJECT_DIR}/.office-port"
+# Default seguro (também usado pelo vhost nginx se o docker estiver fora).
+OFFICE_PORT=8080
+[[ -f "$OFFICE_PORT_STATE" ]] && OFFICE_PORT=$(tr -dc '0-9' < "$OFFICE_PORT_STATE" || echo 8080)
+[[ -z "$OFFICE_PORT" ]] && OFFICE_PORT=8080
+export OFFICE_PORT
+# $1=porta → retorna 0 se LIVRE, 1 se ocupada (checa TCP, não só HTTP).
+port_livre() {
+  local _p="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | grep -qE "[:.]${_p}[[:space:]]" && return 1 || return 0
+  else
+    (echo > "/dev/tcp/127.0.0.1/${_p}") >/dev/null 2>&1 && return 1 || return 0
+  fi
+}
+# Tenta subir o OnlyOffice começando em $OFFICE_PORT até 8095.
+# Em conflito de porta, remove o container estranho que a ocupa (qualquer
+# imagem) ou avança para a próxima porta — nunca derruba o deploy.
+office_run() {
+  local _p="${OFFICE_PORT:-8080}" _occ
+  while [[ "$_p" -le 8095 ]]; do
+    if docker run -d --name "$CTR" --restart unless-stopped -p "127.0.0.1:${_p}:80" \
+      -e JWT_ENABLED=true -e JWT_SECRET="${OFFICE_JWT}" \
+      onlyoffice/documentserver:latest >/dev/null 2>/tmp/office-run.err; then
+      OFFICE_PORT="$_p"; echo "$_p" > "$OFFICE_PORT_STATE"; export OFFICE_PORT
+      return 0
+    fi
+    if grep -qi "port is already allocated\|address already in use" /tmp/office-run.err 2>/dev/null; then
+      warn "Porta ${_p} ocupada por outro serviço — tentando $((_p + 1))…"
+      _occ=$(docker ps --format '{{.ID}} {{.Ports}}' 2>/dev/null | grep -E "(${_p}->|:${_p}->|0.0.0.0:${_p}|127.0.0.1:${_p})" | awk '{print $1}' | head -1 || true)
+      if [[ -n "${_occ:-}" ]]; then
+        docker rm -f "$_occ" >/dev/null 2>&1 \
+          && warn "Container ocupando a porta ${_p} removido (${_occ:0:12})" \
+          && continue
+      fi
+      _p=$((_p + 1)); continue
+    fi
+    cat /tmp/office-run.err >&2 || true
+    return 1
+  done
+  return 1
+}
 if command -v docker >/dev/null && systemctl is-active --quiet docker; then
-  if docker ps -a --format '{{.Names}}' | grep -qx "$CTR"; then
+  # Remove containers OnlyOffice ANTIGOS/com outro nome (ex.: `onlyoffice` de um
+  # docker-compose manual anterior) — mas NUNCA o principal $CTR ainda.
+  docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}' 2>/dev/null | while IFS=$'\t' read -r CID CNM IMG; do
+    case "$IMG" in
+      onlyoffice/*)
+        [[ "$CNM" == "$CTR" ]] && continue
+        docker rm -f "$CID" >/dev/null 2>&1 \
+          && warn "Container OnlyOffice anterior removido (${CNM:-$CID})"
+        ;;
+    esac
+  done
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$CTR"; then
     RUNNING=$(docker inspect -f '{{.State.Running}}' "$CTR" 2>/dev/null || echo "false")
     CTR_JWT=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CTR" 2>/dev/null | grep '^JWT_SECRET=' | cut -d= -f2- || true)
+    CTR_PORT=$(docker port "$CTR" 80/tcp 2>/dev/null | sed 's/.*://' | head -1 || true)
+    [[ -n "${CTR_PORT:-}" ]] && { OFFICE_PORT="$CTR_PORT"; echo "$CTR_PORT" > "$OFFICE_PORT_STATE"; export OFFICE_PORT; }
     if [[ "$RUNNING" == "true" && "$CTR_JWT" == "$OFFICE_JWT" ]]; then
-      ok "OnlyOffice já em execução"
+      ok "OnlyOffice já em execução (porta ${OFFICE_PORT})"
     else
-      log "Recriando container do OnlyOffice (segredo/configuração atualizados)…"
-      docker rm -f "$CTR" >/dev/null
-      docker run -d --name "$CTR" --restart unless-stopped -p 127.0.0.1:8080:80 \
-        -e JWT_ENABLED=true -e JWT_SECRET="${OFFICE_JWT}" \
-        onlyoffice/documentserver:latest >/dev/null \
+      log "Recriando container do OnlyOffice (porta ${OFFICE_PORT})…"
+      docker rm -f "$CTR" >/dev/null 2>&1 || true
+      office_run \
+        && log "OnlyOffice recriado na porta ${OFFICE_PORT}" \
         || warn "Falha ao recriar OnlyOffice — editor de Word no modo básico"
     fi
   else
-    log "Baixando e iniciando OnlyOffice (primeira vez — a imagem tem ~2 GB, pode demorar)…"
-    docker run -d --name "$CTR" --restart unless-stopped -p 127.0.0.1:8080:80 \
-      -e JWT_ENABLED=true -e JWT_SECRET="${OFFICE_JWT}" \
-      onlyoffice/documentserver:latest >/dev/null \
+    # Se a porta salva estiver ocupada por outra coisa, avança antes de subir.
+    while [[ "$OFFICE_PORT" -le 8095 ]] && ! port_livre "$OFFICE_PORT"; do
+      warn "Porta ${OFFICE_PORT} ocupada por outro serviço — tentando $((OFFICE_PORT + 1))…"
+      OFFICE_PORT=$((OFFICE_PORT + 1))
+    done
+    echo "$OFFICE_PORT" > "$OFFICE_PORT_STATE"; export OFFICE_PORT
+    log "Baixando e iniciando OnlyOffice (porta ${OFFICE_PORT} — a imagem tem ~2 GB, pode demorar)…"
+    office_run \
+      && log "OnlyOffice iniciado na porta ${OFFICE_PORT}" \
       || warn "Falha ao iniciar OnlyOffice — editor de Word no modo básico"
   fi
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CTR"; then
     log "Aguardando OnlyOffice ficar pronto (até 3 min)…"
     OFFICE_READY=0
     for _ in $(seq 1 36); do
-      if curl -sf http://127.0.0.1:8080/healthcheck 2>/dev/null | grep -qi true; then OFFICE_READY=1; break; fi
+      if curl -sf "http://127.0.0.1:${OFFICE_PORT}/healthcheck" 2>/dev/null | grep -qi true; then OFFICE_READY=1; break; fi
       sleep 5
     done
     if [[ "$OFFICE_READY" == "1" ]]; then
-      ok "OnlyOffice pronto (editor de Word ativo)"
+      ok "OnlyOffice pronto (editor de Word ativo, porta ${OFFICE_PORT})"
     else
       warn "OnlyOffice ainda inicializando — em poucos minutos ele responde sozinho"
     fi
@@ -395,7 +456,7 @@ NGINX
   # Editor de documentos Office (OnlyOffice) — mesmo domínio, funciona com HTTPS
   location /office/ {
     rewrite /office/(.*) /\$1 break;
-    proxy_pass http://127.0.0.1:8080;
+    proxy_pass http://127.0.0.1:${OFFICE_PORT};
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
