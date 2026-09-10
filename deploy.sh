@@ -503,7 +503,7 @@ ok "✅ Deploy concluído! → https://${SERVER_NAME}"
 # ───────────────────────────────────────────────────────────────────────────────
 # 9) App Funcionários standalone (csll.cloud) — PWA separada, mesmo backend
 # ───────────────────────────────────────────────────────────────────────────────
-if [[ -n "${CSLL_CLOUD_SSPF:-}" && "$CSLL_CLOUD_SSPF" == "1" ]]; then
+if [[ "${CSLL_CLOUD_SSPF:-1}" == "1" ]]; then
   log "App Funcionários standalone (csll.cloud)…"
 
   CSLL_WEB_ROOT="/var/www/csll.cloud"
