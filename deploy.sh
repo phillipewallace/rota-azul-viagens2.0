@@ -507,6 +507,12 @@ if [[ "${CSLL_CLOUD_SSPF:-1}" == "1" ]]; then
   log "App Funcionários standalone (csll.cloud)…"
 
   CSLL_WEB_ROOT="/var/www/csll.cloud"
+  CSLL_WEB_ROOT="/var/www/csll.cloud"
+  CSLL_DIR="$(dirname "$CSLL_WEB_ROOT")"
+
+  # Porta do backend compartilhado (mesma do PM2 principal): PORT do backend/.env ou 3002
+  CSLL_BACKEND_PORT="$(grep -E '^PORT=' "$PROJECT_DIR/backend/.env" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '[:space:]')"
+  [[ -z "$CSLL_BACKEND_PORT" ]] && CSLL_BACKEND_PORT=3002
   CSLL_DIR="$(dirname "$CSLL_WEB_ROOT")"
 
   # Ensure WD directions
@@ -555,14 +561,14 @@ server {
   }
 
   location /api/ {
-    proxy_pass http://127.0.0.1:3002/api/;
+    proxy_pass http://127.0.0.1:__CSLL_BACKEND_PORT__/api/;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Real-IP $remote_addr;
   }
 
   location /uploads/ {
-    proxy_pass http://127.0.0.1:3002/uploads/;
+    proxy_pass http://127.0.0.1:__CSLL_BACKEND_PORT__/uploads/;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
   }
@@ -575,6 +581,7 @@ CSLLHTTP
   } > "$CSLL_VHOST"
 
   sed -i "s|__CSLL_WEB_ROOT__|${CSLL_WEB_ROOT}|g" "$CSLL_VHOST"
+  sed -i "s|__CSLL_BACKEND_PORT__|${CSLL_BACKEND_PORT}|g" "$CSLL_VHOST"
 
   ln -sf "$CSLL_VHOST" /etc/nginx/sites-enabled/csll-cloud 2>/dev/null || true
   nginx -t && systemctl reload nginx
@@ -602,50 +609,58 @@ CSLLHTTP
     log "Configurando HTTPS para csll.cloud…"
 
     # Substitui o vhost HTTP pelo HTTPS (com redirect 301)
+    # Usa heredoc com aspas para NÃO expansão de variáveis nginx ($host, $request_uri, etc)
+    # Depois usa sed apenas para injetar as variáveis bash que precisamos (${CSLL_SSL_CERT}, etc)
     {
-      cat <<CSLLHTTPS
+      cat <<'CSLLHTTPS'
 server {
   listen 80;
   server_name csll.cloud;
-  return 301 https://$$host$$request_uri;
+  return 301 https://$host$request_uri;
 }
 server {
   listen 443 ssl http2;
   server_name csll.cloud;
 
-  ssl_certificate ${CSLL_SSL_CERT};
-  ssl_certificate_key ${CSLL_SSL_KEY};
+  ssl_certificate __CSLL_SSL_CERT__;
+  ssl_certificate_key __CSLL_SSL_KEY__;
   ssl_protocols TLSv1.2 TLSv1.3;
   ssl_ciphers HIGH:!aNULL:!MD5;
   ssl_session_timeout 1d;
   ssl_session_cache shared:SSL:10m;
 
-  root ${CSLL_WEB_ROOT};
+  root __CSLL_WEB_ROOT__;
   index index.html;
   client_max_body_size 25M;
 
   location /api/ {
-    proxy_pass http://127.0.0.1:3002/api/;
-    proxy_set_header Host $$host;
-    proxy_set_header X-Forwarded-Proto $$scheme;
-    proxy_set_header X-Real-IP $$remote_addr;
+    proxy_pass http://127.0.0.1:__CSLL_BACKEND_PORT__/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
   }
 
   location /uploads/ {
-    proxy_pass http://127.0.0.1:3002/uploads/;
-    proxy_set_header Host $$host;
-    proxy_set_header X-Forwarded-Proto $$scheme;
+    proxy_pass http://127.0.0.1:__CSLL_BACKEND_PORT__/uploads/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
   }
 
   location / {
-    try_files $$uri /index.html;
+    try_files $uri /index.html;
   }
 
-  # HSTS (apenas se quiser; pode remover se desejar testar em HTTP primeiro)
+  # HSTS
   add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 }
 CSLLHTTPS
     } > "$CSLL_VHOST"
+
+    # Injetar variáveis bash que precisam ser expandidas (cert, key, root)
+    sed -i "s|__CSLL_SSL_CERT__|${CSLL_SSL_CERT}|g" "$CSLL_VHOST"
+    sed -i "s|__CSLL_SSL_KEY__|${CSLL_SSL_KEY}|g" "$CSLL_VHOST"
+    sed -i "s|__CSLL_WEB_ROOT__|${CSLL_WEB_ROOT}|g" "$CSLL_VHOST"
+    sed -i "s|__CSLL_BACKEND_PORT__|${CSLL_BACKEND_PORT}|g" "$CSLL_VHOST"
 
     nginx -t && systemctl reload nginx
     ok "nginx csll.cloud configurado com HTTPS → https://csll.cloud"
