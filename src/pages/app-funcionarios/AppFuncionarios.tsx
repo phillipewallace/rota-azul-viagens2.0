@@ -266,44 +266,72 @@ const AppFuncionarios = () => {
 
   if (view === 'login') {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-        <PageMeta title="Login | Alchemy Operacional" noindex />
-        <Card className="w-full max-w-sm border-none shadow-2xl bg-slate-800 text-white rounded-[2.5rem] p-4">
-          <CardHeader className="text-center pb-2">
-            <div className="mx-auto w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mb-4">
-              <User className="h-8 w-8 text-primary" />
+      <div className="min-h-dvh bg-gradient-to-br from-[#0b1120] via-[#0f172a] to-[#1e3a8a] flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        <PageMeta title="Login | csll.cloud" noindex />
+        {/* Background decorativo com blur */}
+        <div className="absolute inset-0 pointer-events-none -z-10">
+          <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#1e3a8a" stopOpacity="0.4" />
+                <stop offset="100%" stopColor="#0f172a" stopOpacity="0.1" />
+              </linearGradient>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#bgGrad)" />
+          </svg>
+        </div>
+        <div className="absolute top-6 left-6 w-32 h-32 rounded-full bg-blue-500/10 blur-3xl -z-10" />
+        <div className="absolute bottom-6 right-6 w-48 h-48 rounded-full bg-cyan-400/10 blur-3xl -z-10" />
+
+        <div className="w-full max-w-[28rem]">
+          {/* Logo + Branding */}
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shadow-lg shadow-blue-500/20 mb-4">
+              <svg width="48" height="48" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="20" cy="20" r="18" stroke="white" strokeWidth="2.5" className="opacity-80" />
+                <path d="M14 20 L18 24 L26 14" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="20" cy="20" r="4" fill="white" className="opacity-70" />
+                <circle cx="13" cy="13" r="2" fill="#38bdf8" opacity={0.9} />
+              </svg>
             </div>
-            <CardTitle className="text-3xl font-black italic tracking-tighter">ALCHEMY <span className="text-primary">OPS</span></CardTitle>
-            <p className="text-[10px] text-primary font-black uppercase tracking-widest mt-1">Portal do Funcionário</p>
-            <p className="text-xs text-slate-400">Acesse com seu CPF e senha</p>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">CPF</label>
-                <Input 
-                  placeholder="000.000.000-00" 
-                  className="bg-slate-700/50 border-none text-white h-14 rounded-2xl focus:ring-2 focus:ring-primary"
-                  value={cpf}
-                  onChange={(e) => setCpf(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Senha</label>
-                <Input 
-                  type="password" 
-                  placeholder="••••••••" 
-                  className="bg-slate-700/50 border-none text-white h-14 rounded-2xl focus:ring-2 focus:ring-primary"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <Button type="submit" className="w-full h-14 font-black text-lg rounded-2xl shadow-xl shadow-primary/20 mt-4" disabled={loading}>
-                {loading ? 'ACESSANDO...' : 'ENTRAR NO APP'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+            <h1 className="text-3xl font-bold text-white tracking-tight">
+              csll<span className="text-blue-400">.cloud</span>
+            </h1>
+            <p className="text-blue-300/70 text-sm font-medium mt-1">Painel do Funcionário</p>
+          </div>
+          <Card className="w-full border-0 shadow-2xl bg-white/5 backdrop-blur-xl text-white rounded-3xl p-6 transition-shadow hover:shadow-blue-500/5">
+            <CardHeader className="text-center pb-2">
+              <CardTitle className="text-lg font-semibold text-white">Bem-vindo de volta</CardTitle>
+              <p className="text-xs text-slate-400 mt-0.5">Acesse com seu CPF e senha</p>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleLogin} className="space-y-5">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">CPF</label>
+                  <Input
+                    placeholder="000.000.000-00"
+                    className="bg-slate-700/50 border-none text-white h-14 rounded-2xl focus:ring-2 focus:ring-primary"
+                    value={cpf}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCpf(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Senha</label>
+                  <Input
+                    type="password"
+                    placeholder="••••••••"
+                    className="bg-slate-700/50 border-none text-white h-14 rounded-2xl focus:ring-2 focus:ring-primary"
+                    value={password}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                  />
+                </div>
+                <Button type="submit" className="w-full h-14 font-black text-lg rounded-2xl shadow-xl shadow-primary/20 mt-4" disabled={loading}>
+                  {loading ? 'ACESSANDO...' : 'ENTRAR NO APP'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }

@@ -163,6 +163,8 @@ app.use('/api/erp/documents', erpDocumentsRoutes);
 app.use('/api/office', erpOfficeRoutes);
 app.use('/api/erp/service-orders', erpOsHistoryRoutes);
 app.use('/api/erp/service-orders', erpOsRecolhimentoRoutes);
+// App funcionários (csll.cloud): mesma API, sessão isolada (csll_func_user)
+app.use('/api/funcionarios', appFuncionariosRoutes);
 
 const SENSITIVE_UPLOAD_PREFIXES = ['/invoices/', '/signed/', '/receipts/'];
 app.use('/uploads', (req, res, next) => {

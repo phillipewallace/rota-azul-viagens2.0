@@ -499,3 +499,109 @@ nginx -t && systemctl reload nginx
 ok "nginx recarregado"
 
 ok "✅ Deploy concluído! → https://${SERVER_NAME}"
+
+# ───────────────────────────────────────────────────────────────────────────────
+# 9) App Funcionários standalone (csll.cloud) — PWA separada, mesmo backend
+# ───────────────────────────────────────────────────────────────────────────────
+if [[ -n "${CSLL_CLOUD_SSPF:-}" && "$CSLL_CLOUD_SSPF" == "1" ]]; then
+  log "App Funcionários standalone (csll.cloud)…"
+
+  CSLL_WEB_ROOT="/var/www/csll.cloud"
+  CSLL_DIR="$(dirname "$CSLL_WEB_ROOT")"
+
+  # Ensure WD directions
+  mkdir -p "$CSLL_WEB_ROOT"
+  rm -rf "${CSLL_WEB_ROOT:?}/"* 2>/dev/null || true
+
+  # Build stand-alone front
+  log "Build standalone funcionários (csll.cloud)…"
+  cd "${PROJECT_DIR}"
+  npm run build:func 2>&1 | sed -E 's/^\[copy:pdf-worker\] .*/&/; t; d' || true
+  if [[ -d "dist-func" ]]; then
+    ok "Build func concluído"
+  else
+    warn "dist-func não encontrado ($(pwd)) — verificar npm run build:func"
+  fi
+
+  # Copiar conteúdo para raiz csll.cloud
+  if [[ -d "dist-func" ]]; then
+    rsync -a --delete "dist-func/" "${CSLL_WEB_ROOT}/" 2>/dev/null || cp -r "dist-func/." "${CSLL_WEB_ROOT}/"
+    ok "App funcionários publicado em ${CSLL_WEB_ROOT}"
+  else
+    warn "dist-func não existe — app funcionários não publicado"
+  fi
+
+  # Nginx vhost para csll.cloud
+  CSLL_VHOST="/etc/nginx/sites-available/csll-cloud"
+  log "Regravando vhost nginx para csll.cloud…"
+
+  CSLL_SSL_CERT="/etc/letsencrypt/live/csll.cloud/fullchain.pem"
+  CSLL_SSL_KEY="/etc/letsencrypt/live/csll.cloud/privkey.pem"
+  CSLL_HAS_SSL=0
+  [[ -f "$CSLL_SSL_CERT" && -f "$CSLL_SSL_KEY" ]] && CSLL_HAS_SSL=1
+
+  # Certbot: certificado HTTPS automático
+  if [[ "$CSLL_HAS_SSL" == "0" && -x /usr/bin/certbot ]]; then
+    log "Solicitando certificado HTTPS para csll.cloud via certbot…"
+    if certbot certonly --webroot -w "$CSLL_WEB_ROOT" -d csll.cloud --email "${LE_USER:-admin@${SERVER_NAME}}" --agree-tos --non-interactive --force-renewal 2>/dev/null; then
+      CSLL_SSL_CERT="/etc/letsencrypt/live/csll.cloud/fullchain.pem"
+      CSLL_SSL_KEY="/etc/letsencrypt/live/csll.cloud/privkey.pem"
+      CSLL_HAS_SSL=1
+      ok "Certificado csll.cloud obtido via certbot"
+    else
+      warn "certbot falhou — csll.cloud sem HTTPS (faça manual: certbot certonly -d csll.cloud)"
+    fi
+  elif [[ "$CSLL_HAS_SSL" == "0" && ! -x /usr/bin/certbot ]]; then
+    warn "certbot não instalado — csll.cloud sem HTTPS (apt install certbot)"
+  fi
+
+  {
+    cat <<CSLLNGINX
+server {
+  listen 80; server_name csll.cloud;
+CSLLNGINX
+    if [[ "$CSLL_HAS_SSL" == "1" ]]; then
+      cat <<CSLLNGINX
+  return 301 https://\$host\$request_uri; }
+server {
+  listen 443 ssl http2; server_name csll.cloud;
+  ssl_certificate ${CSLL_SSL_CERT}; ssl_certificate_key ${CSLL_SSL_KEY};
+CSLLNGINX
+    fi
+    cat <<CSLLNGINX
+  root ${CSLL_WEB_ROOT};
+  index index.html;
+  client_max_body_size 25M;
+
+  # API — mesmo backend (proxy)
+  location /api/ {
+    proxy_pass http://127.0.0.1:3002/api/;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Real-IP \$remote_addr;
+  }
+
+  # Uploads — mesmo caminho
+  location /uploads/ {
+    proxy_pass http://127.0.0.1:3002/uploads/;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
+
+  # SPA fallback
+  location / {
+    try_files \$uri /index.html;
+  }
+}
+CSLLNGINX
+  } > "$CSLL_VHOST"
+
+  ln -sf "$CSLL_VHOST" /etc/nginx/sites-enabled/csll-cloud 2>/dev/null || true
+  nginx -t && systemctl reload nginx
+  ok "nginx csll.cloud recarregado"
+
+  # Remove deploy simbólico se existia antes como vhost "stub"
+  if [[ -L "/etc/nginx/sites-enabled/csll-cloud" ]]; then
+    ok "Bloco csll.cloud ativo em https://csll.cloud"
+  fi
+fi

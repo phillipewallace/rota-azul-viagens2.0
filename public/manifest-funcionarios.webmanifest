@@ -1,16 +1,19 @@
 {
-  "name": "CSLL Equipe",
-  "short_name": "CSLL Equipe",
-  "description": "Agenda de campo, checklist e ponto da equipe CSLL.",
+  "name": "csll.cloud",
+  "short_name": "csll.cloud",
+  "description": "App de campo da CSLL — agenda, checklist e ordens de serviço.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "theme_color": "#2563eb",
   "categories": ["business", "productivity"],
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
-  ]
+    { "src": "/func-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/func-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/func-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable any" }
+  ],
+  "screenshots": [],
+  "related_applications": []
 }
