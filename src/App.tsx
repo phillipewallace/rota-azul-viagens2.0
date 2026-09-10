@@ -122,6 +122,7 @@ function AppShell() {
           <Route path="/login" element={<Login />} />
           <Route path="/mobile" element={<MobileDriver />} />
           <Route path="/checklist" element={<PublicChecklist />} />
+          <Route path="/checklists" element={<Protected><Checklists /></Protected>} />
 
           <Route path="/" element={<Protected><Index /></Protected>} />
           <Route path="/trucks" element={<Protected><Trucks /></Protected>} />
