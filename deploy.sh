@@ -531,77 +531,125 @@ if [[ -n "${CSLL_CLOUD_SSPF:-}" && "$CSLL_CLOUD_SSPF" == "1" ]]; then
     warn "dist-func não existe — app funcionários não publicado"
   fi
 
-  # Nginx vhost para csll.cloud
+  # ── 9.2 Nginx vhost para csll.cloud ────────────────────────────────────────
   CSLL_VHOST="/etc/nginx/sites-available/csll-cloud"
-  log "Regravando vhost nginx para csll.cloud…"
-
   CSLL_SSL_CERT="/etc/letsencrypt/live/csll.cloud/fullchain.pem"
   CSLL_SSL_KEY="/etc/letsencrypt/live/csll.cloud/privkey.pem"
   CSLL_HAS_SSL=0
   [[ -f "$CSLL_SSL_CERT" && -f "$CSLL_SSL_KEY" ]] && CSLL_HAS_SSL=1
 
-  # Certbot: certificado HTTPS automático
+  log "Criando vhost HTTP para csll.cloud (preciso antes do certbot)…"
+
+  # Vhost HTTP: só serve o app + proxy API + deixa .well-known acessível pro certbot
+  {
+    cat <<'CSLLHTTP'
+server {
+  listen 80;
+  server_name csll.cloud;
+  root __CSLL_WEB_ROOT__;
+  index index.html;
+  client_max_body_size 25M;
+
+  location /.well-known/ {
+    allow all;
+  }
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:3002/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
+
+  location /uploads/ {
+    proxy_pass http://127.0.0.1:3002/uploads/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location / {
+    try_files $uri /index.html;
+  }
+}
+CSLLHTTP
+  } > "$CSLL_VHOST"
+
+  sed -i "s|__CSLL_WEB_ROOT__|${CSLL_WEB_ROOT}|g" "$CSLL_VHOST"
+
+  ln -sf "$CSLL_VHOST" /etc/nginx/sites-enabled/csll-cloud 2>/dev/null || true
+  nginx -t && systemctl reload nginx
+  ok "vhost HTTP csll.cloud criado e nginx recarregado"
+
+  # ── 9.3 Certbot: certificado HTTPS ──────────────────────────────────────────
   if [[ "$CSLL_HAS_SSL" == "0" && -x /usr/bin/certbot ]]; then
     log "Solicitando certificado HTTPS para csll.cloud via certbot…"
-    if certbot certonly --webroot -w "$CSLL_WEB_ROOT" -d csll.cloud --email "${LE_USER:-admin@${SERVER_NAME}}" --agree-tos --non-interactive --force-renewal 2>/dev/null; then
+    if certbot certonly --webroot -w "$CSLL_WEB_ROOT" -d csll.cloud \
+        --email "${LE_USER:-admin@${SERVER_NAME}}" --agree-tos --non-interactive \
+        --force-renewal 2>/dev/null; then
       CSLL_SSL_CERT="/etc/letsencrypt/live/csll.cloud/fullchain.pem"
       CSLL_SSL_KEY="/etc/letsencrypt/live/csll.cloud/privkey.pem"
       CSLL_HAS_SSL=1
       ok "Certificado csll.cloud obtido via certbot"
     else
-      warn "certbot falhou — csll.cloud sem HTTPS (faça manual: certbot certonly -d csll.cloud)"
+      warn "certbot falhou — csll.cloud continua em HTTP (faça manual: sudo certbot certonly -d csll.cloud)"
     fi
   elif [[ "$CSLL_HAS_SSL" == "0" && ! -x /usr/bin/certbot ]]; then
-    warn "certbot não instalado — csll.cloud sem HTTPS (apt install certbot)"
+    warn "certbot não instalado — csll.cloud continua em HTTP (apt install certbot python3-certbot-nginx)"
   fi
 
-  {
-    cat <<CSLLNGINX
+  # ── 9.4 Vhost HTTPS (se certificado disponível) ─────────────────────────────
+  if [[ "$CSLL_HAS_SSL" == "1" ]]; then
+    log "Configurando HTTPS para csll.cloud…"
+
+    # Substitui o vhost HTTP pelo HTTPS (com redirect 301)
+    {
+      cat <<CSLLHTTPS
 server {
-  listen 80; server_name csll.cloud;
-CSLLNGINX
-    if [[ "$CSLL_HAS_SSL" == "1" ]]; then
-      cat <<CSLLNGINX
-  return 301 https://\$host\$request_uri; }
+  listen 80;
+  server_name csll.cloud;
+  return 301 https://$$host$$request_uri;
+}
 server {
-  listen 443 ssl http2; server_name csll.cloud;
-  ssl_certificate ${CSLL_SSL_CERT}; ssl_certificate_key ${CSLL_SSL_KEY};
-CSLLNGINX
-    fi
-    cat <<CSLLNGINX
+  listen 443 ssl http2;
+  server_name csll.cloud;
+
+  ssl_certificate ${CSLL_SSL_CERT};
+  ssl_certificate_key ${CSLL_SSL_KEY};
+  ssl_protocols TLSv1.2 TLSv1.3;
+  ssl_ciphers HIGH:!aNULL:!MD5;
+  ssl_session_timeout 1d;
+  ssl_session_cache shared:SSL:10m;
+
   root ${CSLL_WEB_ROOT};
   index index.html;
   client_max_body_size 25M;
 
-  # API — mesmo backend (proxy)
   location /api/ {
     proxy_pass http://127.0.0.1:3002/api/;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header Host $$host;
+    proxy_set_header X-Forwarded-Proto $$scheme;
+    proxy_set_header X-Real-IP $$remote_addr;
   }
 
-  # Uploads — mesmo caminho
   location /uploads/ {
     proxy_pass http://127.0.0.1:3002/uploads/;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header Host $$host;
+    proxy_set_header X-Forwarded-Proto $$scheme;
   }
 
-  # SPA fallback
   location / {
-    try_files \$uri /index.html;
+    try_files $$uri /index.html;
   }
+
+  # HSTS (apenas se quiser; pode remover se desejar testar em HTTP primeiro)
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 }
-CSLLNGINX
-  } > "$CSLL_VHOST"
+CSLLHTTPS
+    } > "$CSLL_VHOST"
 
-  ln -sf "$CSLL_VHOST" /etc/nginx/sites-enabled/csll-cloud 2>/dev/null || true
-  nginx -t && systemctl reload nginx
-  ok "nginx csll.cloud recarregado"
-
-  # Remove deploy simbólico se existia antes como vhost "stub"
-  if [[ -L "/etc/nginx/sites-enabled/csll-cloud" ]]; then
-    ok "Bloco csll.cloud ativo em https://csll.cloud"
+    nginx -t && systemctl reload nginx
+    ok "nginx csll.cloud configurado com HTTPS → https://csll.cloud"
+  else
+    ok "csll.cloud publicado em http://csll.cloud (sem HTTPS por enquanto)"
   fi
 fi
