@@ -404,6 +404,9 @@ cp -r "${PROJECT_DIR}/dist/." "${WEB_ROOT}/"
 if ! grep -rq "carretinhas" "${WEB_ROOT}/assets" 2>/dev/null; then
   err "Bundle publicado SEM as rotas novas (carretinhas) — build/git desatualizado"
 fi
+if ! grep -rq "checklists" "${WEB_ROOT}/assets" 2>/dev/null; then
+  err "Bundle publicado SEM a rota /checklists — build/git desatualizado"
+fi
 ok "Frontend publicado em ${WEB_ROOT} (commit $(git -C "${PROJECT_DIR}" rev-parse --short HEAD))"
 
 # Espelho no caminho LEGADO — vhosts antigos podem apontar para cá; garante que
