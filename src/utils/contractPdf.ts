@@ -125,6 +125,31 @@ function valorPorExtenso(n: number): string {
 }
 
 
+/**
+ * Normaliza o nome do produto para exibicao no contrato.
+ * Os orçamentos salvam só o rótulo curto da categoria do sanitario
+ * ("Com Pia", "Comum", "PNE", "Luxo", "Cabine de Banho") - sem o sujeito.
+ * Aqui recompomos o nome completo ("Sanitário Químico Com Pia") para que
+ * a CLÁUSULA I não saia como "locação de 01 (um) Com Pia".
+ */
+export function displayProduto(it: { produto?: string | null; descricao?: string | null }): string {
+  const raw = String(it.produto || '').trim();
+  if (!raw) return String(it.descricao || 'item').trim() || 'item';
+  const MAP: Record<string, string> = {
+    'com pia': 'Sanitário Químico Com Pia',
+    'comum': 'Sanitário Químico Comum',
+    'pne': 'Sanitário Químico PNE',
+    'luxo': 'Sanitário Químico Luxo',
+    'cabine de banho': 'Cabine de Banho',
+    'sanitario quimico standard': 'Sanitário Químico Standard',
+  };
+  const key = raw.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (MAP[key]) return MAP[key];
+  const m = key.match(/^com\s+(.+)$/);
+  if (m) return 'Sanitário Químico Com ' + m[1].replace(/\b\w/g, (cc) => cc.toUpperCase());
+  return raw;
+}
+
 function numeroPorExtenso(n: number): string {
   return valorPorExtenso(n).replace(/ rea(?:l|is).*/, '');
 }
@@ -207,13 +232,28 @@ function buildContext(src: ContractSource): Record<string, string> {
       .filter(it => (parseInt(String(it.quantidade || 0)) || 0) > 0)
       .map(it => {
         const q = parseInt(String(it.quantidade || 0)) || 0;
-        const nome = String(it.produto || it.descricao || 'item').trim();
+        const nome = displayProduto(it);
         return `${String(q).padStart(2, '0')} (${numeroPorExtenso(q)}) ${nome}`;
       });
     if (partes.length === 1) objetoDesc = partes[0];
     else if (partes.length === 2) objetoDesc = `${partes[0]} e ${partes[1]}`;
     else if (partes.length > 2) objetoDesc = partes.slice(0, -1).join(', ') + ', e ' + partes[partes.length - 1];
   }
+  // Texto livre legado pode conter o rotulo curto ("com pia", "comum"...).
+  // Recompomos o nome completo para nunca sair "01 (um) com pia".
+  const normalizaTextoLivre = (t: string): string => {
+    let s = ' ' + String(t || '') + ' ';
+    const trocas: Array<[RegExp, string]> = [
+      [/\b[Cc]om [Pp]ia\b/g, 'Sanitário Químico Com Pia'],
+      [/\b[Cc]omum\b(?!\s+Sanit)/g, 'Sanitário Químico Comum'],
+      [/\bPNE\b/g, 'Sanitário Químico PNE'],
+      [/\b[Ll]uxo\b(?!\s+Sanit)/g, 'Sanitário Químico Luxo'],
+      [/\b[Cc]abine de [Bb]anho\b/g, 'Cabine de Banho'],
+    ];
+    for (const [re, sub] of trocas) s = s.replace(re, sub);
+    return s.trim().replace(/\s{2,}/g, ' ');
+  };
+
   if (!objetoDesc) {
     // Fallback real: usa o texto descritivo do objeto (contratos importados /
     // manuais) — NUNCA mostrar genérico como "sanitário químico" se há descrição.
@@ -225,6 +265,7 @@ function buildContext(src: ContractSource): Record<string, string> {
         .replace(/^(?:\.\.\.|\*\*\*|\-+)\s*/g, '')
         .replace(/\s+/g, ' ')                        // colapsa espacios
         .trim();
+      objetoDesc = normalizaTextoLivre(objetoDesc);
     }
   }
   if (!objetoDesc) {
