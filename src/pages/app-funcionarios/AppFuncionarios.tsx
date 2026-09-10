@@ -8,11 +8,14 @@ import {
   PackageOpen, PackageCheck, Calendar, MapPin, 
   Camera, LogOut, ClipboardList, CheckCircle2,
   Clock, AlertCircle, ChevronRight, User, ArrowLeft, History,
-  Image as ImageIcon, Plus, Info, Check, X, Phone, MessageSquare, Navigation
+  Image as ImageIcon, Plus, Info, Check, X, Phone, MessageSquare, Navigation, Eye, EyeOff
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { API_BASE_URL } from '@/services/config';
 import { logger } from '@/lib/logger';
+import {
+  FUNC_API_BASE_URL, readFuncSession, writeFuncSession,
+  clearFuncSession, maskCpfInput, onlyCpfDigits, funcLoginErrorMessage,
+} from './funcSession';
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter 
 } from '@/components/ui/dialog';
@@ -37,6 +40,8 @@ const AppFuncionarios = () => {
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [list, setList] = useState<OS[]>([]);
   const [selectedOs, setSelectedOs] = useState<any | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -56,14 +61,14 @@ const AppFuncionarios = () => {
   });
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('alchemy_func_user');
+    const savedUser = readFuncSession<string>();
     if (savedUser) {
       try {
         const parsed = JSON.parse(savedUser);
         setUser(parsed);
         setView('agenda');
-      } catch (e) {
-        localStorage.removeItem('alchemy_func_user');
+      } catch {
+        clearFuncSession();
       }
     }
   }, []);
@@ -76,37 +81,64 @@ const AppFuncionarios = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cpf || !password) return toast.error('Preencha todos os campos');
-    
+    setLoginError(null);
+    const digits = onlyCpfDigits(cpf);
+    if (digits.length !== 11) {
+      const msg = 'Digite o CPF completo com 11 dígitos.';
+      setLoginError(msg);
+      return toast.error(msg);
+    }
+    if (!password) {
+      const msg = 'Digite sua senha.';
+      setLoginError(msg);
+      return toast.error(msg);
+    }
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/erp/funcionarios/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cpf, password })
-      });
-
-      if (!res.ok) throw new Error('Credenciais inválidas');
-
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20000);
+      let res: Response;
+      try {
+        res = await fetch(`${FUNC_API_BASE_URL}/erp/funcionarios/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cpf: digits, password }),
+          signal: ctrl.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) {
+        const msg = await funcLoginErrorMessage(res);
+        setLoginError(msg);
+        return toast.error(msg);
+      }
       const data = await res.json();
+      if (!data?.token) {
+        const msg = 'Resposta inválida do servidor. Tente de novo.';
+        setLoginError(msg);
+        return toast.error(msg);
+      }
       setUser(data);
-      localStorage.setItem('alchemy_func_user', JSON.stringify(data));
+      writeFuncSession(data);
+      setPassword('');
       setView('agenda');
-      toast.success(`Bem-vindo, ${data.nome}!`);
+      toast.success(`Bem-vindo, ${String(data.nome || '').split(' ')[0] || 'colega'}!`);
       logger.info('Login realizado com sucesso', { id: data.id });
-    } catch (e: any) { 
-      logger.error('Erro no login', { message: e.message });
-      // Distingue credencial errada de falha de conexão (UX para o usuário de campo).
-      toast.error(e.message === 'Credenciais inválidas'
-        ? 'CPF ou senha incorretos'
-        : 'Erro ao conectar com o servidor'); 
-    } finally { 
-      setLoading(false); 
+    } catch (e: any) {
+      logger.error('Erro no login', { message: e?.message });
+      const msg = e?.name === 'AbortError'
+        ? 'Demorou demais para responder. Confira sua internet e tente de novo.'
+        : 'Erro ao conectar com o servidor. Confira sua internet.';
+      setLoginError(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('alchemy_func_user');
+    clearFuncSession();
     setUser(null);
     setView('login');
     setCpf('');
@@ -117,7 +149,7 @@ const AppFuncionarios = () => {
     if (!user?.token) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/app-funcionarios/os?history=${isHistory}&date=${selectedDate}`, {
+      const res = await fetch(`${FUNC_API_BASE_URL}/app-funcionarios/os?history=${isHistory}&date=${selectedDate}`, {
         headers: { 'Authorization': `Bearer ${user.token}` }
       });
       if (res.status === 401) return handleLogout();
@@ -133,7 +165,7 @@ const AppFuncionarios = () => {
 
   const loadOsSanitarios = async (osId: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/app-funcionarios/os/${osId}/sanitarios`, {
+      const res = await fetch(`${FUNC_API_BASE_URL}/app-funcionarios/os/${osId}/sanitarios`, {
         headers: { 'Authorization': `Bearer ${user.token}` }
       });
       if (res.ok) setOsSanitarios(await res.json());
@@ -144,7 +176,7 @@ const AppFuncionarios = () => {
     setUploading(true);
     try {
       const endpoint = type === 'entrega' ? 'entregar-item' : 'recolher-item';
-      const res = await fetch(`${API_BASE_URL}/app-funcionarios/os/${osId}/${endpoint}`, {
+      const res = await fetch(`${FUNC_API_BASE_URL}/app-funcionarios/os/${osId}/${endpoint}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -179,7 +211,7 @@ const AppFuncionarios = () => {
   const handleAssumirOS = async (osId: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/app-funcionarios/os/${osId}/assumir`, {
+      const res = await fetch(`${FUNC_API_BASE_URL}/app-funcionarios/os/${osId}/assumir`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${user?.token}` }
       });
@@ -187,7 +219,7 @@ const AppFuncionarios = () => {
       toast.success('Você assumiu esta OS!');
       await loadOS();
       // Atualiza o selectedOs com os dados novos vindos do loadOS (incluindo items)
-      const freshList = await fetch(`${API_BASE_URL}/app-funcionarios/os?history=false&date=${selectedDate}`, {
+      const freshList = await fetch(`${FUNC_API_BASE_URL}/app-funcionarios/os?history=false&date=${selectedDate}`, {
         headers: { 'Authorization': `Bearer ${user.token}` }
       }).then(r => r.json());
       const fresh = freshList.find((o: any) => o.id === osId);
@@ -207,7 +239,7 @@ const AppFuncionarios = () => {
     if (!confirm('Deseja realmente soltar esta OS e devolvê-la para a fila global?')) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/app-funcionarios/os/${osId}/desvincular`, {
+      const res = await fetch(`${FUNC_API_BASE_URL}/app-funcionarios/os/${osId}/desvincular`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${user?.token}` }
       });
@@ -745,7 +777,7 @@ const AppFuncionarios = () => {
                           for (const file of toUpload) {
                             const formData = new FormData();
                             formData.append('file', file);
-                            const res = await fetch(`${API_BASE_URL}/upload`, { method: 'POST', body: formData });
+                            const res = await fetch(`${FUNC_API_BASE_URL}/upload`, { method: 'POST', body: formData });
                             if (res.ok) {
                               const { url } = await res.json();
                               setNewSanForm(prev => ({ ...prev, fotos: [...(prev.fotos || []), url] }));
@@ -792,7 +824,7 @@ const AppFuncionarios = () => {
                 onClick={async () => {
                   setUploading(true);
                   try {
-                    const res = await fetch(`${API_BASE_URL}/app-funcionarios/estoque-manual`, {
+                    const res = await fetch(`${FUNC_API_BASE_URL}/app-funcionarios/estoque-manual`, {
                       method: 'POST',
                       headers: { 
                         'Content-Type': 'application/json',
@@ -890,7 +922,7 @@ const AppFuncionarios = () => {
                           for (const file of toUpload) {
                             const formData = new FormData();
                             formData.append('file', file);
-                            const res = await fetch(`${API_BASE_URL}/upload`, { method: 'POST', body: formData });
+                            const res = await fetch(`${FUNC_API_BASE_URL}/upload`, { method: 'POST', body: formData });
                             if (res.ok) {
                               const { url } = await res.json();
                               setGenericForm(prev => ({ ...prev, fotos: [...prev.fotos, url] }));
