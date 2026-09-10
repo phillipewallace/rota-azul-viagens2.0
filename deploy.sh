@@ -408,12 +408,20 @@ ok "Frontend publicado em ${WEB_ROOT} (commit $(git -C "${PROJECT_DIR}" rev-pars
 
 # Espelho no caminho LEGADO — vhosts antigos podem apontar para cá; garante que
 # qualquer entrada também receba o build novo.
+# ATENÇÃO: se o repositório ESTÁ em /var/www/rota-azul-viagens, o LEGACY_DIST
+# é o próprio ${PROJECT_DIR}/dist — nesse caso não há nada a copiar (pular),
+# pois rm/cp sobre o mesmo diretório apagaria o build e falharia o deploy.
 LEGACY_DIST="/var/www/rota-azul-viagens/dist"
+NEW_DIST="${PROJECT_DIR}/dist"
 if [[ -d "/var/www/rota-azul-viagens" ]]; then
-  mkdir -p "${LEGACY_DIST}"
-  rm -rf "${LEGACY_DIST:?}/"*
-  cp -r "${PROJECT_DIR}/dist/." "${LEGACY_DIST}/"
-  ok "Espelho legado publicado em ${LEGACY_DIST}"
+  if [[ "$(realpath -m "$LEGACY_DIST")" == "$(realpath -m "$NEW_DIST")" ]]; then
+    ok "Espelho legado = próprio dist (sem cópia necessária)"
+  else
+    mkdir -p "${LEGACY_DIST}"
+    rm -rf "${LEGACY_DIST:?}/"*
+    cp -r "${NEW_DIST}/." "${LEGACY_DIST}/"
+    ok "Espelho legado publicado em ${LEGACY_DIST}"
+  fi
 fi
 
 # ─── 7) PM2 (backend) ───────────────────────────────────────────────────────
