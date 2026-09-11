@@ -143,6 +143,7 @@
   },
   "optionalDependencies": {
     "@rollup/rollup-win32-x64-msvc": "4.24.0",
-    "@swc/core-win32-x64-msvc": "1.15.43"
+    "@swc/core-win32-x64-msvc": "1.15.43",
+    "@rolldown/binding-win32-x64-msvc": "1.1.3"
   }
 }

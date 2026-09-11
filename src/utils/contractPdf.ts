@@ -154,6 +154,40 @@ function numeroPorExtenso(n: number): string {
   return valorPorExtenso(n).replace(/ rea(?:l|is).*/, '');
 }
 
+/**
+ * Pluraliza o nome do sanitário quando a quantidade for maior que 1.
+ * Ex.: qtd 2 -> "Sanitários Químicos Comuns" (em vez de "Sanitário Químico Comum").
+ *
+ * Regras:
+ *  - "Sanitário" -> "Sanitários", "Químico" -> "Químicos", "Comum" -> "Comuns";
+ *  - Qualificadores de modelo ficam invariáveis: PNE, Standard, Luxo;
+ *  - A expressão "com pia" (nome do modelo) também fica invariável;
+ *  - "Cabine de Banho" -> "Cabines de Banho";
+ *  - Nomes desconhecidos (textos livres, outros produtos) são mantidos como
+ *    estão para nunca corromper frases já em português correto.
+ */
+export function pluralizarProduto(nome: string, q: number | string): string {
+  const quantidade = parseInt(String(q), 10) || 0;
+  const t = String(nome || '').trim();
+  if (!t || quantidade <= 1) return t;
+
+  // Preserva a capitalização da palavra original na forma pluralizada.
+  const cap = (orig: string, repl: string): string =>
+    /^[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/.test(orig) ? repl.charAt(0).toUpperCase() + repl.slice(1) : repl;
+
+  // "Cabine de Banho" (e já-plural "Cabines de Banho")
+  if (/^cabines? de banho$/i.test(t)) return t.replace(/^cabines?/i, 'Cabines');
+
+  // Somente nomes de sanitários conhecidos (evita pluralizar frases livres).
+  if (!/^sanit[áa]rios?/i.test(t)) return t;
+
+  let s = t;
+  s = s.replace(/\bSanit[áa]rio\b/gi, (m) => cap(m, /[áa]rio$/i.test(m) && !/á/i.test(m) ? 'sanitarios' : 'sanitários'));
+  s = s.replace(/\bQu[íi]mic[oa]\b/gi, (m) => cap(m, /[íi]mic/i.test(m) && !/í/i.test(m) ? 'quimicos' : 'químicos'));
+  s = s.replace(/\bComum\b/gi, (m) => cap(m, 'comuns'));
+  return s.replace(/\s{2,}/g, ' ').trim();
+}
+
 export interface ContractSource {
   numero: string;
   tipo: 'orcamento' | 'os';
@@ -228,13 +262,22 @@ function buildContext(src: ContractSource): Record<string, string> {
   const totalQtd = items.reduce((acc, it) => acc + (parseInt(String(it.quantidade || 0)) || 0), 0);
   let objetoDesc = '';
   if (items.length > 0) {
-    const partes = items
-      .filter(it => (parseInt(String(it.quantidade || 0)) || 0) > 0)
-      .map(it => {
-        const q = parseInt(String(it.quantidade || 0)) || 0;
-        const nome = displayProduto(it);
-        return `${String(q).padStart(2, '0')} (${numeroPorExtenso(q)}) ${nome}`;
-      });
+    // Agrupa itens por tipo (produto + descrição) somando quantidades, para
+    // que dois lançamentos de "Comum" com qty 1 virem "02 (dois) Sanitários
+    // Químicos Comuns" — plural por tipo, como nos contratos.
+    const porTipo = new Map<string, { nome: string; qtd: number }>();
+    for (const it of items) {
+      const q = parseInt(String(it.quantidade || 0)) || 0;
+      if (q <= 0) continue;
+      const nome = displayProduto(it);
+      const chave = `${nome}::${String(it.descricao || '').trim()}`;
+      const atual = porTipo.get(chave);
+      if (atual) atual.qtd += q;
+      else porTipo.set(chave, { nome, qtd: q });
+    }
+    const partes = Array.from(porTipo.values()).map(({ nome, qtd }) =>
+      `${String(qtd).padStart(2, '0')} (${numeroPorExtenso(qtd)}) ${pluralizarProduto(nome, qtd)}`
+    );
     if (partes.length === 1) objetoDesc = partes[0];
     else if (partes.length === 2) objetoDesc = `${partes[0]} e ${partes[1]}`;
     else if (partes.length > 2) objetoDesc = partes.slice(0, -1).join(', ') + ', e ' + partes[partes.length - 1];
