@@ -278,25 +278,42 @@ router.post('/release-competencia', requireRole(...FIN_ROLES), async (req: any, 
 
     await client.query('BEGIN');
 
-    // 1) Recibos ativos daquele contrato+competência → cancelados (histórico preservado)
+    // 1) Recibos ativos daquele contrato+competencia -> cancelados (historico preservado).
+    //    A competencia FATURADA vive em erp_receipt_billed_competences e pode
+    //    diferir da columna competencia do recibo (recibos historicos / periodos
+    //    que cruzam meses, ver plano eliminar-recibos-ja-generados). Por isso
+    //    cancelamos um recibo que tenha a competencia na sua columna O que a
+    //    tenha vinculada como facturada.
     const rec = await client.query(
       `UPDATE erp_receipts
           SET status='cancelado', pago=FALSE, cancelado_em=NOW(),
               motivo_cancelamento=$3, updated_by=$4, updated_at=NOW()
-        WHERE contract_id=$1 AND competencia=$2
+        WHERE contract_id=$1
           AND COALESCE(status,'aberto') <> 'cancelado'
+          AND (
+                competencia = $2
+                OR EXISTS (
+                  SELECT 1 FROM erp_receipt_billed_competences bc
+                   WHERE bc.receipt_id = erp_receipts.id
+                     AND bc.contract_id = $1 AND bc.competencia = $2
+                )
+              )
         RETURNING id`,
       [contractId, competencia, autoMotivo, actor]
     );
-    const reciboIds: string[] = rec.rows.map((r: any) => r.id);
-    if (reciboIds.length > 0) {
-      // Recibos cancelados não quitam competência — vínculos saem da tabela.
-      await client.query(
-        `DELETE FROM erp_receipt_billed_competences
-          WHERE receipt_id = ANY($1::uuid[]) AND competencia=$2`,
-        [reciboIds, competencia]
-      );
-    }
+    // Recibos cancelados nao quitam competencia: eliminamos TODOS os vinculos
+    // facturados daquele contrato+mes (independente do recibo que os criou).
+    await client.query(
+      `DELETE FROM erp_receipt_billed_competences
+        WHERE contract_id=$1 AND competencia=$2`,
+      [contractId, competencia]
+    );
+    // Reverso de "Forçar saída": liberar tambien quita essa marca manual.
+    await client.query(
+      `DELETE FROM erp_manual_billed_competences
+        WHERE contract_id=$1 AND competencia=$2`,
+      [contractId, competencia]
+    );
 
     // 2) NFs ativas vinculadas àquela competência → canceladas
     const nf = await client.query(
