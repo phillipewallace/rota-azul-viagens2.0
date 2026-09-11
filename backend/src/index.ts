@@ -61,6 +61,7 @@ app.use(requestLogger);
 const ALLOWED_ORIGINS = [
   'http://localhost:5173', 'http://localhost:8080', 'http://192.168.1.100:5173',
   'https://alchemyrotas.com', 'https://www.alchemyrotas.com',
+  'https://csll.cloud',
   'capacitor://localhost', 'http://localhost', 'https://localhost', 'ionic://localhost',
 ];
 app.use(cors({
