@@ -1019,7 +1019,13 @@ const AppFuncionarios = () => {
         </button>
         <button 
           className="flex flex-col items-center gap-1 p-2 text-slate-400"
-          onClick={() => window.location.href = '/checklist'}
+          onClick={() => {
+            // A checklist pública (campo placa) vive no sistema principal:
+            // https://alchemyrotas.com/checklist. Navegar para '/checklist' local
+            // reinicia o app standalone e volta para o login.
+            const base = FUNC_API_BASE_URL.replace(/\/api\/?$/, '');
+            window.open(`${base}/checklist`, '_blank', 'noopener');
+          }}
         >
           <ClipboardList className="w-6 h-6" />
           <span className="text-[10px] font-bold">Checklist</span>
