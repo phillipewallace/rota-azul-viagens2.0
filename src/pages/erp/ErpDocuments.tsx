@@ -15,16 +15,17 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
-import { erpService, type ErpCompany, type ErpDocument } from '@/services/erp';
+import { erpService, type ErpCompany, type ErpDocument, type ErpDocumentFile } from '@/services/erp';
 import { API_BASE_URL } from '@/services/config';
 import { confirmDialog } from '@/lib/confirm';
 import PaginationBar from '@/components/PaginationBar';
 import DocumentPreviewDialog from '@/components/erp/DocumentPreviewDialog';
-import { formatFileSize, getPreviewKind, downloadFileFromUrl, previewKindLabels } from '@/utils/documentFiles';
+import { formatFileSize, getPreviewKind, downloadFileFromUrl, previewKindLabels, type PreviewKind } from '@/utils/documentFiles';
 import { SPREADSHEET_EXTS, OFFICE_DOC_EXTS } from '@/utils/spreadsheetConvert';
 import {
   Plus, Search, RefreshCw, Trash2, Pencil, Eye, Download, FolderOpen, X,
-  FileText, Filter, UploadCloud, FileQuestion, FileEdit,
+  FileText, Filter, UploadCloud, FileQuestion, FileEdit, ChevronDown, ChevronRight,
+  FolderArchive, Loader2, FileImage, FileVideo, FileAudio, FileArchive, FileSpreadsheet, FileType,
 } from 'lucide-react';
 
 const TIPO_SUGGESTIONS = [
@@ -32,6 +33,32 @@ const TIPO_SUGGESTIONS = [
   'Alvará', 'Licença', 'Laudo', 'Manual', 'Certificado', 'Procuração',
   'Contrato Social', 'CNPJ', 'Seguro', 'Outros',
 ];
+
+// Filtro propio de cada sub-pasta (por tipo de archivo).
+const SUB_FILTER_TYPES: Array<{ value: string; label: string }> = [
+  { value: 'all', label: 'Todos los tipos' },
+  { value: 'pdf', label: 'PDF' },
+  { value: 'image', label: 'Imagen' },
+  { value: 'office', label: 'Office / Planilla' },
+  { value: 'text', label: 'Texto' },
+  { value: 'video', label: 'Vídeo' },
+  { value: 'audio', label: 'Audio' },
+  { value: 'archive', label: 'Comprimido' },
+  { value: 'other', label: 'Otros' },
+];
+
+const subFileIcon = (kind: PreviewKind) => {
+  switch (kind) {
+    case 'pdf': return <FileText className="h-5 w-5 text-rose-500 flex-shrink-0" />;
+    case 'image': return <FileImage className="h-5 w-5 text-emerald-500 flex-shrink-0" />;
+    case 'video': return <FileVideo className="h-5 w-5 text-violet-500 flex-shrink-0" />;
+    case 'audio': return <FileAudio className="h-5 w-5 text-sky-500 flex-shrink-0" />;
+    case 'text': return <FileType className="h-5 w-5 text-indigo-500 flex-shrink-0" />;
+    case 'office': return <FileSpreadsheet className="h-5 w-5 text-blue-500 flex-shrink-0" />;
+    case 'archive': return <FileArchive className="h-5 w-5 text-amber-500 flex-shrink-0" />;
+    default: return <FileQuestion className="h-5 w-5 text-slate-400 flex-shrink-0" />;
+  }
+};
 
 interface DocForm {
   nome: string;
@@ -84,10 +111,22 @@ const ErpDocuments: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [removeFile, setRemoveFile] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [previewDoc, setPreviewDoc] = useState<ErpDocument | null>(null);
+  const [previewHideEdit, setPreviewHideEdit] = useState(false);
   const reqRef = useRef(0);
+
+  // Sub-pasta: múltiplos arquivos por documento (estado por doc-id).
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [filesStore, setFilesStore] = useState<Record<string, ErpDocumentFile[]>>({});
+  const [filesLoading, setFilesLoading] = useState<Record<string, boolean>>({});
+  const [fileSearch, setFileSearch] = useState<Record<string, string>>({});
+  const [fileTipoFilter, setFileTipoFilter] = useState<Record<string, string>>({});
+  const [subDragActive, setSubDragActive] = useState<Record<string, boolean>>({});
+  const [subUploading, setSubUploading] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(q.trim()), 350);
@@ -169,6 +208,8 @@ const ErpDocuments: React.FC = () => {
     setSelectedFile(null);
     setRemoveFile(false);
     setDragActive(false);
+    setPendingFiles([]);
+    setUploadProgress(null);
     setModalOpen(true);
   };
 
@@ -184,6 +225,8 @@ const ErpDocuments: React.FC = () => {
     setSelectedFile(null);
     setRemoveFile(false);
     setDragActive(false);
+    setPendingFiles([]);
+    setUploadProgress(null);
     setModalOpen(true);
   };
 
@@ -207,14 +250,137 @@ const ErpDocuments: React.FC = () => {
     setDragActive(false);
   };
 
+  // Acumula arquivos (sem limite) na lista de envio da sub-pasta.
+  const addPendingFiles = (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (!list.length) return;
+    setPendingFiles((prev) => {
+      const keys = new Set(prev.map((f) => `${f.name}|${f.size}`));
+      const added = list.filter((f) => !keys.has(`${f.name}|${f.size}`));
+      return [...prev, ...added];
+    });
+  };
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
+    const files = e.dataTransfer.files;
+    if (!files || !files.length) return;
+    addPendingFiles(files);
+  };
+
+  // ── Sub-pasta ─────────────────────────────────────────────────────────────
+  const loadDocFiles = async (doc: ErpDocument) => {
+    setFilesLoading((s) => ({ ...s, [doc.id]: true }));
+    try {
+      const files = await erpService.listDocumentFiles(doc.id);
+      setFilesStore((s) => ({ ...s, [doc.id]: files }));
+    } catch (e: any) {
+      toast({ title: 'Erro ao carregar arquivos', description: e?.message, variant: 'destructive' });
+    } finally {
+      setFilesLoading((s) => ({ ...s, [doc.id]: false }));
+    }
+  };
+
+  const toggleExpand = (doc: ErpDocument) => {
+    const next = new Set(expandedIds);
+    if (next.has(doc.id)) {
+      next.delete(doc.id);
+    } else {
+      next.add(doc.id);
+      if (!filesStore[doc.id] && !filesLoading[doc.id]) loadDocFiles(doc);
+    }
+    setExpandedIds(next);
+  };
+
+  const bumpCount = (docId: string, delta: number) => {
+    setItems((prev) => prev.map((d) =>
+      d.id === docId ? { ...d, arquivosCount: Math.max(0, (d.arquivosCount || 0) + delta) } : d,
+    ));
+  };
+
+  const addFileToDoc = async (docId: string, file: File) => {
+    setSubUploading((s) => ({ ...s, [docId]: true }));
+    try {
+      const created = await erpService.uploadDocumentFile(docId, file);
+      setFilesStore((s) => ({ ...s, [docId]: [created, ...(s[docId] || [])] }));
+      bumpCount(docId, 1);
+    } catch (e: any) {
+      toast({ title: 'Erro ao enviar arquivo', description: e?.message, variant: 'destructive' });
+    } finally {
+      setSubUploading((s) => ({ ...s, [docId]: false }));
+    }
+  };
+
+  const handleRemoveDocFile = async (doc: ErpDocument, f: ErpDocumentFile) => {
+    const ok = await confirmDialog({
+      title: 'Remover arquivo?',
+      description: `"${f.arquivoNome}" será removido da sub-pasta de "${doc.nome}".`,
+      confirmLabel: 'Remover',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await erpService.deleteDocumentFile(doc.id, f.id);
+      setFilesStore((s) => ({ ...s, [doc.id]: (s[doc.id] || []).filter((x) => x.id !== f.id) }));
+      bumpCount(doc.id, -1);
+    } catch (e: any) {
+      toast({ title: 'Erro ao remover arquivo', description: e?.message || 'Tente novamente.', variant: 'destructive' });
+    }
+  };
+
+  const openFilePreview = (doc: ErpDocument, f: ErpDocumentFile) => {
+    setPreviewDoc({
+      id: doc.id,
+      nome: f.arquivoNome,
+      tipo: doc.tipo,
+      numeracao: doc.numeracao,
+      empresaEmissora: doc.empresaEmissora,
+      arquivoUrl: f.arquivoUrl,
+      arquivoNome: f.arquivoNome,
+      arquivoTamanho: f.arquivoTamanho,
+      arquivoTipo: f.arquivoTipo,
+    });
+    setPreviewHideEdit(true);
+  };
+
+  const onClosePreview = (open: boolean) => {
+    if (!open) { setPreviewDoc(null); setPreviewHideEdit(false); }
+  };
+
+  // Drag & drop do arquivo dentro de cada sub-pasta.
+  const onSubDragEnter = (docId: string) => (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setSubDragActive((s) => ({ ...s, [docId]: true }));
+  };
+  const onSubDragLeave = (docId: string) => (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setSubDragActive((s) => ({ ...s, [docId]: false }));
+  };
+  const onSubDrop = (docId: string) => (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSubDragActive((s) => ({ ...s, [docId]: false }));
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (!f) return;
-    setSelectedFile(f);
-    setRemoveFile(false);
+    if (f) addFileToDoc(docId, f);
+  };
+
+  // Busca + filtro de tipo — próprios de cada sub-pasta (filtrados no cliente).
+  const visibleSubFiles = (docId: string) => {
+    const all = filesStore[docId] || [];
+    const qs = (fileSearch[docId] || '').trim().toLowerCase();
+    const tf = fileTipoFilter[docId] || 'all';
+    return all.filter((f) => {
+      if (qs && !f.arquivoNome.toLowerCase().includes(qs)) return false;
+      if (tf !== 'all' && getPreviewKind(f.arquivoNome, f.arquivoTipo) !== tf) return false;
+      return true;
+    });
   };
 
   const handleSave = async () => {
@@ -247,13 +413,50 @@ const ErpDocuments: React.FC = () => {
         arquivoTipo,
       };
 
-      if (editing?.id) await erpService.updateDocument(editing.id, payload);
-      else await erpService.createDocument(payload);
+      // 1) Cria/atualiza o registro do documento.
+      let docId: string | null = editing?.id || null;
+      if (docId) {
+        await erpService.updateDocument(docId, payload);
+      } else {
+        const created = await erpService.createDocument(payload);
+        docId = created.id;
+      }
 
-      toast({ title: 'Documento salvo', description: `${nome} foi salvo com sucesso.` });
+      // 2) Processa e envia TODOS os arquivos pendentes para a sub-pasta
+      //    (sem limite por vez, 1 a 1 para não sobrecarregar o servidor).
+      if (docId && pendingFiles.length) {
+        setUploadProgress({ done: 0, total: pendingFiles.length });
+        let done = 0;
+        for (const f of pendingFiles) {
+          try {
+            await erpService.uploadDocumentFile(docId, f);
+          } catch (e: any) {
+            // Falha pontual não aborta o restante da fila.
+            toast({ title: `Falha ao enviar "${f.name}"`, description: e?.message || 'Arquivo ignorado.', variant: 'destructive' });
+          }
+          done += 1;
+          setUploadProgress({ done, total: pendingFiles.length });
+        }
+      }
+
+      const totalSub = (docId && pendingFiles.length) ? pendingFiles.length : 0;
+      toast({
+        title: 'Documento salvo',
+        description: totalSub > 0
+          ? `${nome} salvo e sub-pasta gerada com ${totalSub} arquivo(s).`
+          : `${nome} foi salvo com sucesso.`,
+      });
       setModalOpen(false);
+      setPendingFiles([]);
+      setUploadProgress(null);
       await load();
       refreshMeta();
+
+      // Abre a sub-pasta do documento recém-criado para mostrar os arquivos enviados.
+      if (!editing?.id && docId && totalSub > 0) {
+        setExpandedIds((prev) => { const n = new Set(prev); n.add(docId as string); return n; });
+        loadDocFiles({ id: docId } as ErpDocument);
+      }
     } catch (e: any) {
       toast({ title: 'Erro ao salvar', description: e?.message || 'Tente novamente.', variant: 'destructive' });
     } finally {
@@ -406,10 +609,20 @@ const ErpDocuments: React.FC = () => {
                   const kindLabel = previewKindLabels[kind];
                   const ext = fileExtension(d.arquivoNome);
                   const canEditFile = !!d.arquivoUrl && (SPREADSHEET_EXTS.includes(ext) || OFFICE_DOC_EXTS.includes(ext));
+                  const isExpanded = expandedIds.has(d.id);
+                  const subFiles = visibleSubFiles(d.id);
                   return (
-                    <tr key={d.id} className="border-t border-slate-100 hover:bg-slate-50/60">
+                    <React.Fragment key={d.id}>
+                    <tr className={`border-t border-slate-100 ${isExpanded ? 'bg-indigo-50/40' : 'hover:bg-slate-50/60'}`}>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 max-w-[240px]">
+                        <div className="flex items-center gap-2 max-w-[280px]">
+                          <Button
+                            variant="ghost" size="icon"
+                            title={isExpanded ? 'Ocultar sub-pasta' : 'Ver sub-pasta'}
+                            onClick={() => toggleExpand(d)}
+                          >
+                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          </Button>
                           <FileText className="h-4 w-4 text-indigo-500 flex-shrink-0" />
                           <span className="truncate font-medium" title={d.nome}>{d.nome}</span>
                         </div>
@@ -424,13 +637,13 @@ const ErpDocuments: React.FC = () => {
                         <span className="truncate block" title={d.empresaEmissora}>{d.empresaEmissora || '—'}</span>
                       </td>
                       <td className="px-4 py-3">
-                        {d.arquivoNome ? (
-                          <div className="flex items-center gap-2 min-w-0 max-w-[200px]">
-                            <FileText className="h-4 w-4 text-slate-400 flex-shrink-0" />
-                            <div className="min-w-0">
-                              <p className="truncate text-xs" title={d.arquivoNome}>{d.arquivoNome}</p>
-                              <p className="text-[10px] text-muted-foreground">{kindLabel} · {formatFileSize(d.arquivoTamanho)}</p>
-                            </div>
+                        {d.arquivosCount ? (
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FolderArchive className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                            <span className="text-xs font-medium">{d.arquivosCount} archivo{d.arquivosCount === 1 ? '' : 's'}</span>
+                            {d.arquivoNome && (
+                              <span className="text-[10px] text-muted-foreground truncate max-w-[110px]" title={d.arquivoNome}>{d.arquivoNome}</span>
+                            )}
                           </div>
                         ) : (
                           <span className="text-muted-foreground">—</span>
@@ -466,6 +679,134 @@ const ErpDocuments: React.FC = () => {
                         </div>
                       </td>
                     </tr>
+
+                    {isExpanded && (
+                      <tr key={`${d.id}-sub`} className="border-t border-slate-100 bg-indigo-50/20">
+                        <td colSpan={7} className="px-4 py-4">
+                          <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <p className="text-sm font-semibold flex items-center gap-2">
+                                <FolderArchive className="h-4 w-4 text-indigo-500" />
+                                Sub-pasta de {d.nome}
+                                <Badge variant="secondary">
+                                  {(filesStore[d.id] || []).length} archivo{(filesStore[d.id] || []).length === 1 ? '' : 's'}
+                                </Badge>
+                              </p>
+                              <Button
+                                variant="ghost" size="sm"
+                                onClick={() => { const n = new Set(expandedIds); n.delete(d.id); setExpandedIds(n); }}
+                              >
+                                <X className="h-4 w-4" /> Cerrar
+                              </Button>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="relative flex-1 min-w-[200px]">
+                                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                  value={fileSearch[d.id] || ''}
+                                  onChange={(e) => setFileSearch((s) => ({ ...s, [d.id]: e.target.value }))}
+                                  placeholder="Buscar archivos por nombre..."
+                                  className="pl-9"
+                                />
+                              </div>
+                              <select
+                                value={fileTipoFilter[d.id] || 'all'}
+                                onChange={(e) => setFileTipoFilter((s) => ({ ...s, [d.id]: e.target.value }))}
+                                className="h-10 px-3 rounded-md border bg-white text-sm"
+                              >
+                                {SUB_FILTER_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              </select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={!!subUploading[d.id]}
+                                onClick={(e) => { e.stopPropagation(); document.getElementById(`erp-doc-sub-input-${d.id}`)?.click(); }}
+                              >
+                                <UploadCloud className="h-4 w-4" />
+                                {subUploading[d.id] ? 'Subiendo...' : 'Añadir archivos'}
+                              </Button>
+                              <input
+                                id={`erp-doc-sub-input-${d.id}`}
+                                type="file"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  const fs = e.target.files;
+                                  if (fs) Array.from(fs).forEach((f) => addFileToDoc(d.id, f));
+                                  e.target.value = '';
+                                }}
+                              />
+                            </div>
+<div
+                                className={`rounded-xl border p-3 transition-colors cursor-pointer ${
+                                  subDragActive[d.id] ? 'border-indigo-400 bg-indigo-50/70' : 'border-dashed hover:border-indigo-300'
+                                }`}
+                                onDragEnter={onSubDragEnter(d.id)}
+                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!subDragActive[d.id]) setSubDragActive((s) => ({ ...s, [d.id]: true })); }}
+                                onDragLeave={onSubDragLeave(d.id)}
+                                onDrop={onSubDrop(d.id)}
+                              >
+                                <div className="flex flex-col items-center justify-center gap-2 py-3 text-center text-muted-foreground">
+                                  <UploadCloud className="h-5 w-5" />
+                                  <p className="text-sm font-medium">
+                                    {subDragActive[d.id] ? 'Solte aquí para añadir' : 'Arrastre y suelte nuevos archivos aquí'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {filesLoading[d.id] ? (
+                                <div className="p-6 text-center text-muted-foreground">
+                                  <Loader2 className="h-5 w-5 mx-auto animate-spin" /> Cargando archivos…
+                                </div>
+                              ) : subFiles.length === 0 ? (
+                                <div className="p-5 text-center text-muted-foreground text-sm">
+                                  {(filesStore[d.id] || []).length === 0
+                                    ? 'Aún no hay archivos en esta sub-pasta — añade o arrastra uno aquí arriba.'
+                                    : 'Ningún archivo coincide con esta búsqueda y filtro.'}
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                  {subFiles.map((f) => {
+                                    const fKind = getPreviewKind(f.arquivoNome, f.arquivoTipo);
+                                    return (
+                                      <div key={f.id} className="p-3 rounded-lg bg-white border shadow-sm">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          {subFileIcon(fKind)}
+                                          <div className="min-w-0 flex-1">
+                                            <p className="text-xs font-medium truncate" title={f.arquivoNome}>{f.arquivoNome}</p>
+                                            <p className="text-[10px] text-muted-foreground">
+                                              {previewKindLabels[fKind]} · {formatFileSize(f.arquivoTamanho)} · {fmtDate(f.createdAt)}
+                                            </p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center justify-end gap-1 mt-1.5">
+                                          <Button variant="ghost" size="sm" title="Visualizar" onClick={() => openFilePreview(d, f)}>
+                                            <Eye className="h-4 w-4" />
+                                          </Button>
+                                          <Button variant="ghost" size="sm" title="Baixar"
+                                            onClick={() => downloadFileFromUrl(f.arquivoUrl, f.arquivoNome).catch(() => {})}>
+                                            <Download className="h-4 w-4" />
+                                          </Button>
+                                          <Button
+                                            variant="ghost" size="sm" title="Remover"
+                                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                            onClick={() => handleRemoveDocFile(d, f)}
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -543,7 +884,71 @@ const ErpDocuments: React.FC = () => {
                 />
               </div>
             </div>
-{/* Vincular arquivo (qualquer tipo) — clique ou arraste e solte */}
+{/* Arquivo vinculado (principal — apenas ao editar) */}
+            {editing && editing.arquivoNome && (
+              <div className="rounded-xl border p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <Label className="mb-0">Arquivo vinculado {`(atual)`}</Label>
+                  {removeFile && <span className="text-xs text-amber-600">Será desvinculado ao salvar.</span>}
+                </div>
+                {!removeFile && (
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{editing.arquivoNome}</p>
+                        <p className="text-xs text-muted-foreground">{formatFileSize(editing.arquivoTamanho)} · vinculado</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="ghost" size="sm" title="Pré-visualizar" onClick={() => setPreviewDoc(editing!)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" title="Desvincular" onClick={() => setRemoveFile(true)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <input
+                    id="erp-doc-replace-input"
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files && e.target.files[0];
+                      if (f) { setSelectedFile(f); setRemoveFile(false); }
+                      e.target.value = '';
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => { e.stopPropagation(); document.getElementById('erp-doc-replace-input')?.click(); }}
+                  >
+                    <UploadCloud className="h-4 w-4" />
+                    {selectedFile ? 'Trocar arquivo' : 'Substituir arquivo'}
+                  </Button>
+                </div>
+                {selectedFile && (
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-50 border">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-5 w-5 text-indigo-500 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{selectedFile.name}</p>
+                        <p className="text-xs text-muted-foreground">{formatFileSize(selectedFile.size)} · substituirá o atual</p>
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => setSelectedFile(null)} title="Remover seleção">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sub-pasta: vários arquivos de uma única vez (sem limite) */}
             <div
               className={`rounded-xl border p-4 space-y-3 transition-colors cursor-pointer ${
                 dragActive ? 'border-indigo-400 bg-indigo-50/70' : 'border-dashed hover:border-indigo-300'
@@ -555,67 +960,49 @@ const ErpDocuments: React.FC = () => {
               onDrop={handleDrop}
             >
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <Label className="mb-0">Arquivo vinculado</Label>
-                {!selectedFile && !(editing && editing.arquivoNome && !removeFile) && (
-                  <span className="text-xs text-muted-foreground">
-                    {dragActive ? 'Solte o arquivo para anexar' : 'Arraste o arquivo para cá ou clique em “Vincular arquivo”'}
-                  </span>
-                )}
+                <Label className="mb-0">Sub-pasta (arquivos adicionais)</Label>
+                <span className="text-xs text-muted-foreground">
+                  {dragActive ? 'Solte os arquivos aqui' : 'Arraste vários arquivos ou clique — sem limite por vez'}
+                </span>
               </div>
               <input
                 id="erp-doc-file-input"
                 type="file"
+                multiple
                 className="hidden"
                 onChange={(e) => {
-                  const f = e.target.files && e.target.files[0];
-                  if (f) { setSelectedFile(f); setRemoveFile(false); }
+                  if (e.target.files) addPendingFiles(e.target.files);
                   e.target.value = '';
                 }}
               />
 
-              {!selectedFile && !(editing && editing.arquivoNome && !removeFile) && (
-                <div className={`flex flex-col items-center justify-center gap-2 py-8 rounded-lg border text-center transition-colors ${dragActive ? 'border-indigo-400 bg-indigo-100 text-indigo-700' : 'border-dashed border-slate-200 text-muted-foreground'}`}>
-                  <UploadCloud className="h-6 w-6" />
-                  <p className="text-sm font-medium">{dragActive ? 'Solte o arquivo aqui' : 'Arraste e solte seu arquivo'}</p>
-                  <p className="text-xs opacity-80">Qualquer tipo de arquivo · clique para selecionar</p>
-                </div>
-              )}
+              <div className={`flex flex-col items-center justify-center gap-2 py-8 rounded-lg border text-center transition-colors ${dragActive ? 'border-indigo-400 bg-indigo-100 text-indigo-700' : 'border-dashed border-slate-200 text-muted-foreground'}`}>
+                <UploadCloud className="h-6 w-6" />
+                <p className="text-sm font-medium">{dragActive ? 'Solte os arquivos aqui' : 'Arraste e solte os arquivos'}</p>
+                <p className="text-xs opacity-80">
+                  {pendingFiles.length > 0
+                    ? `${pendingFiles.length} arquivo(s) pronto(s) para envio`
+                    : 'Vários arquivos de uma vez · clique para selecionar'}
+                </p>
+              </div>
 
-              {selectedFile ? (
-                <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-50 border">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileText className="h-5 w-5 text-indigo-500 flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{selectedFile.name}</p>
-                      <p className="text-xs text-muted-foreground">{formatFileSize(selectedFile.size)} · pronto para envio</p>
+              {pendingFiles.length > 0 && (
+                <div className="space-y-2">
+                  {pendingFiles.map((f, i) => (
+                    <div key={`${f.name}|${f.size}`} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-slate-50 border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="h-5 w-5 text-indigo-500 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{f.name}</p>
+                          <p className="text-xs text-muted-foreground">{formatFileSize(f.size)} · pronto para envio</p>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => removePendingFile(i)} title="Remover da lista">
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }} title="Remover seleção">
-                    <X className="h-4 w-4" />
-                  </Button>
+                  ))}
                 </div>
-              ) : editing && editing.arquivoNome && !removeFile ? (
-                <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileText className="h-5 w-5 text-emerald-600 flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{editing.arquivoNome}</p>
-                      <p className="text-xs text-muted-foreground">{formatFileSize(editing.arquivoTamanho)} · vinculado</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="sm" title="Pré-visualizar" onClick={(e) => { e.stopPropagation(); setPreviewDoc(editing!); }}>
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" title="Desvincular" onClick={(e) => { e.stopPropagation(); setRemoveFile(true); }}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {!selectedFile && removeFile && (
-                <p className="text-xs text-amber-600">O arquivo atual será desvinculado ao salvar.</p>
               )}
 
               <Button
@@ -625,20 +1012,24 @@ const ErpDocuments: React.FC = () => {
                 onClick={(e) => { e.stopPropagation(); document.getElementById('erp-doc-file-input')?.click(); }}
               >
                 <UploadCloud className="h-4 w-4" />
-                {selectedFile
-                  ? 'Trocar arquivo'
-                  : editing && editing.arquivoNome && !removeFile
-                    ? 'Substituir arquivo'
-                    : 'Vincular arquivo'}
+                {pendingFiles.length > 0 ? 'Adicionar mais arquivos' : 'Adicionar arquivos'}
               </Button>
             </div>
           </div>
 
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancelar</Button>
+            <Button variant="ghost" onClick={() => setModalOpen(false)} disabled={saving}>Cancelar</Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
-              {editing ? 'Salvar alterações' : 'Cadastrar documento'}
+              {saving
+                ? uploadProgress
+                  ? `Enviando ${uploadProgress.done}/${uploadProgress.total}…`
+                  : 'Salvando…'
+                : editing
+                  ? 'Salvar alterações'
+                  : pendingFiles.length > 0
+                    ? `Cadastrar documento + ${pendingFiles.length} arquivo${pendingFiles.length === 1 ? '' : 's'}`
+                    : 'Cadastrar documento'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -648,7 +1039,8 @@ const ErpDocuments: React.FC = () => {
       <DocumentPreviewDialog
         open={!!previewDoc}
         doc={previewDoc}
-        onOpenChange={(o) => { if (!o) setPreviewDoc(null); }}
+        hideEdit={previewHideEdit}
+        onOpenChange={onClosePreview}
       />
     </div>
   );

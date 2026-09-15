@@ -164,6 +164,29 @@ export const erpService = {
   createDocument: (data: Partial<ErpDocument>) => req<ErpDocument>('POST', '/documents', data),
   updateDocument: (id: string, data: Partial<ErpDocument>) => req<ErpDocument>('PUT', `/documents/${id}`, data),
   deleteDocument: (id: string) => req<{ ok: true }>('DELETE', `/documents/${id}`),
+  listDocumentFiles: (id: string, opts: { search?: string; tipo?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.search) q.set('search', opts.search);
+    if (opts.tipo) q.set('tipo', opts.tipo);
+    const s = q.toString();
+    return req<ErpDocumentFile[]>('GET', `/documents/${id}/files${s ? '?' + s : ''}`);
+  },
+  uploadDocumentFile: async (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const token = localStorage.getItem('auth_token');
+    const res = await fetch(`${API_BASE_URL}/erp/documents/${id}/files`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: fd,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || 'Falha ao enviar o arquivo');
+    }
+    return res.json() as Promise<ErpDocumentFile>;
+  },
+  deleteDocumentFile: (id: string, fileId: string) => req<{ ok: true }>('DELETE', `/documents/${id}/files/${fileId}`),
 };
 
 export interface SignedPdf {
@@ -190,10 +213,22 @@ export interface ErpDocument {
   arquivoNome?: string;
   arquivoTamanho?: number;
   arquivoTipo?: string;
+  arquivosCount?: number;
   observacoes?: string;
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface ErpDocumentFile {
+  id: string;
+  documentId: string;
+  arquivoUrl: string;
+  arquivoNome: string;
+  arquivoTamanho?: number;
+  arquivoTipo?: string;
+  createdBy?: string;
+  createdAt?: string;
 }
 
 export async function uploadSignedPdfBlob(

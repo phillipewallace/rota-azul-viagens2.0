@@ -7,6 +7,8 @@
 import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
+import multer from 'multer';
+import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../config/database';
 import { requireAuth } from '../middleware/requireAuth';
 import { sendError } from '../utils/apiError';
@@ -17,6 +19,32 @@ const router = Router();
 router.use(requireAuth);
 
 const uploadsDir = path.join(__dirname, '../../uploads');
+
+// Upload de arquivos da sub-pasta (max 50MB, qualquer tipo).
+const fileStorage = multer.diskStorage({
+  destination: (_req: any, _file: any, cb: any) => cb(null, uploadsDir),
+  filename: (_req: any, file: any, cb: any) => {
+    const uniqueName = `${uuidv4()}-${Date.now()}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+const fileUpload = multer({
+  storage: fileStorage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req: any, _file: any, cb: any) => cb(null, true),
+});
+
+/** Remove arquivo físico (best-effort) se a URL apunta a /uploads/. */
+const removePhysical = (url?: string | null) => {
+  if (url && url.startsWith('/uploads/')) {
+    try {
+      const fp = path.join(uploadsDir, path.basename(url));
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    } catch (e) {
+      logger.warn('ERP-DOCS', 'Falha ao remover arquivo físico', { error: (e as any).message });
+    }
+  }
+};
 
 const str = (v: any, max = 2000): string | null => {
   if (v == null) return null;
@@ -43,7 +71,9 @@ const COLUMNS = `
   d.observacoes,
   d.created_by AS "createdBy",
   d.created_at AS "createdAt",
-  d.updated_at AS "updatedAt"
+  d.updated_at AS "updatedAt",
+  (SELECT COUNT(*)::int FROM erp_document_files f WHERE f.document_id = d.id)
+    + CASE WHEN d.arquivo_url IS NOT NULL AND d.arquivo_url <> '' THEN 1 ELSE 0 END AS "arquivosCount"
 `;
 
 // Mesmos campos sem o prefixo de alias d. — usado em UPDATE ... RETURNING.
@@ -60,7 +90,9 @@ const RETURN_COLUMNS = `
   observacoes,
   created_by AS "createdBy",
   created_at AS "createdAt",
-  updated_at AS "updatedAt"
+  updated_at AS "updatedAt",
+  (SELECT COUNT(*)::int FROM erp_document_files f WHERE f.document_id = id)
+    + CASE WHEN arquivo_url IS NOT NULL AND arquivo_url <> '' THEN 1 ELSE 0 END AS "arquivosCount"
 `;
 
 function buildWhere(q: any, startIdx = 1): { where: string; params: any[] } {
@@ -134,6 +166,86 @@ router.get('/:id', async (req: any, res: any) => {
     res.json(r.rows[0]);
   } catch (e: any) {
     sendError(res, e, '[erp-documents GET/:id]');
+  }
+});
+
+// ── Sub-pasta: múltiplos arquivos por documento ────────────────────────────
+router.get('/:id/files', async (req: any, res: any) => {
+  try {
+    const params: any[] = [req.params.id];
+    const conds: string[] = ['document_id = $1'];
+    let i = 2;
+    if (req.query.search) {
+      params.push(`%${String(req.query.search).toLowerCase()}%`);
+      conds.push(`LOWER(arquivo_nome) LIKE $${i}`);
+      i++;
+    }
+    if (req.query.tipo && req.query.tipo !== 'all') {
+      params.push(`%.${String(req.query.tipo).toLowerCase()}`);
+      conds.push(`LOWER(arquivo_nome) LIKE $${i}`);
+      i++;
+    }
+    const r = await pool.query(
+      `SELECT id, document_id AS "documentId", arquivo_url AS "arquivoUrl", arquivo_nome AS "arquivoNome",
+              arquivo_tamanho::int AS "arquivoTamanho", arquivo_tipo AS "arquivoTipo",
+              created_by AS "createdBy", created_at AS "createdAt"
+         FROM erp_document_files
+        WHERE ${conds.join(' AND ')}
+        ORDER BY created_at DESC`,
+      params,
+    );
+    res.json(r.rows);
+  } catch (e: any) {
+    logger.error('ERP-DOCS', 'Erro ao listar arquivos da sub-pasta', { error: e.message });
+    sendError(res, e, '[erp-documents GET /:id/files]');
+  }
+});
+
+router.post('/:id/files', (req: any, res: any, next: any) => {
+  fileUpload.single('file')(req, res, async (err: any) => {
+    if (err) {
+      logger.error('ERP-DOCS', 'Erro no upload de arquivo da sub-pasta', { error: err.message });
+      return res.status(400).json({ error: err.message || 'Erro no upload do arquivo' });
+    }
+    try {
+      const file = req.file;
+      if (!file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+
+      const docQ = await pool.query(`SELECT id FROM erp_documents WHERE id = $1`, [req.params.id]);
+      if (!docQ.rows[0]) {
+        removePhysical(`/uploads/${file.filename}`);
+        return res.status(404).json({ error: 'Documento não encontrado' });
+      }
+
+      const url = `/uploads/${file.filename}`;
+      const r = await pool.query(
+        `INSERT INTO erp_document_files (document_id, arquivo_url, arquivo_nome, arquivo_tamanho, arquivo_tipo, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING id, document_id AS "documentId", arquivo_url AS "arquivoUrl", arquivo_nome AS "arquivoNome",
+                   arquivo_tamanho::int AS "arquivoTamanho", arquivo_tipo AS "arquivoTipo",
+                   created_by AS "createdBy", created_at AS "createdAt"`,
+        [req.params.id, url, file.originalname, file.size, file.mimetype, req.user?.username || null],
+      );
+      res.status(201).json(r.rows[0]);
+    } catch (e: any) {
+      logger.error('ERP-DOCS', 'Erro ao criar arquivo na sub-pasta', { error: e.message });
+      sendError(res, e, '[erp-documents POST /:id/files]');
+    }
+  });
+});
+
+router.delete('/:id/files/:fileId', async (req: any, res: any) => {
+  try {
+    const r = await pool.query(
+      `DELETE FROM erp_document_files WHERE id = $1 AND document_id = $2 RETURNING arquivo_url`,
+      [req.params.fileId, req.params.id],
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'Arquivo não encontrado' });
+    removePhysical(r.rows[0].arquivo_url);
+    res.json({ ok: true });
+  } catch (e: any) {
+    logger.error('ERP-DOCS', 'Erro ao eliminar arquivo da sub-pasta', { error: e.message });
+    sendError(res, e, '[erp-documents DELETE /:id/files/:fileId]');
   }
 });
 
@@ -211,18 +323,13 @@ router.put('/:id', async (req: any, res: any) => {
 
 router.delete('/:id', async (req: any, res: any) => {
   try {
+    // Remove físicamente todos los archivos de la sub-pasta y el principal.
+    const filesQ = await pool.query(`SELECT arquivo_url FROM erp_document_files WHERE document_id = $1`, [req.params.id]);
+    for (const row of filesQ.rows) removePhysical(row.arquivo_url);
+
     const r = await pool.query(`DELETE FROM erp_documents WHERE id = $1 RETURNING arquivo_url`, [req.params.id]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Documento não encontrado' });
-    // Eliminação best-effort do arquivo físico (não falha o delete se falhar).
-    const url = r.rows[0].arquivo_url as string | null;
-    if (url && url.startsWith('/uploads/')) {
-      try {
-        const fp = path.join(uploadsDir, path.basename(url));
-        if (fs.existsSync(fp)) fs.unlinkSync(fp);
-      } catch (e) {
-        logger.warn('ERP-DOCS', 'Falha ao remover arquivo físico', { error: (e as any).message });
-      }
-    }
+    removePhysical(r.rows[0].arquivo_url);
     res.json({ ok: true });
   } catch (e: any) {
     sendError(res, e, '[erp-documents DELETE]');

@@ -198,9 +198,11 @@ interface DialogProps {
   open: boolean;
   doc: ErpDocument | null;
   onOpenChange: (open: boolean) => void;
+  /** Ocultar el botón "Editar" (para archivos de sub-pasta que no se editan con el editor del documento principal). */
+  hideEdit?: boolean;
 }
 
-const DocumentPreviewDialog: React.FC<DialogProps> = ({ open, doc, onOpenChange }) => {
+const DocumentPreviewDialog: React.FC<DialogProps> = ({ open, doc, onOpenChange, hideEdit = false }) => {
   const kind = useMemo<PreviewKind>(
     () => (doc ? getPreviewKind(doc.arquivoNome, doc.arquivoTipo) : 'other'),
     [doc],
@@ -262,7 +264,7 @@ const DocumentPreviewDialog: React.FC<DialogProps> = ({ open, doc, onOpenChange 
   const url = toAbsoluteUrl(doc.arquivoUrl);
   const hasExtracted = textContent.length > 0;
   const canExtract = (kind === 'text' || kind === 'office' || kind === 'archive') && !isDocx;
-  const canEditFile = !!doc.arquivoUrl && (SPREADSHEET_EXTS.includes(docExt) || OFFICE_DOC_EXTS.includes(docExt));
+  const canEditFile = !hideEdit && !!doc.arquivoUrl && (SPREADSHEET_EXTS.includes(docExt) || OFFICE_DOC_EXTS.includes(docExt));
 
   const handleEditFile = () => {
     onOpenChange(false);
