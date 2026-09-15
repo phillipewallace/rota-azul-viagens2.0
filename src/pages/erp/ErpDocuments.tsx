@@ -83,6 +83,7 @@ const ErpDocuments: React.FC = () => {
   const [form, setForm] = useState<DocForm>(EMPTY_FORM);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [removeFile, setRemoveFile] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [previewDoc, setPreviewDoc] = useState<ErpDocument | null>(null);
@@ -126,6 +127,18 @@ const ErpDocuments: React.FC = () => {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    // Impede que o navegador navegue/abra o arquivo quando o usuário soltar
+    // fora da dropzone do modal (comportamento padrão de drag-and-drop).
+    const preventDefault = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragover', preventDefault);
+    window.addEventListener('drop', preventDefault);
+    return () => {
+      window.removeEventListener('dragover', preventDefault);
+      window.removeEventListener('drop', preventDefault);
+    };
+  }, []);
+
   useEffect(() => { load(); }, [load]);
 
   // Opções únicas para os filtros e datalists do formulário.
@@ -155,6 +168,7 @@ const ErpDocuments: React.FC = () => {
     setForm(EMPTY_FORM);
     setSelectedFile(null);
     setRemoveFile(false);
+    setDragActive(false);
     setModalOpen(true);
   };
 
@@ -169,7 +183,38 @@ const ErpDocuments: React.FC = () => {
     });
     setSelectedFile(null);
     setRemoveFile(false);
+    setDragActive(false);
     setModalOpen(true);
+  };
+
+  // ── Drag & drop de arquivo para dentro do modal ─────────────────────────
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!dragActive) setDragActive(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!dragActive) setDragActive(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    // Só desativa quando o ponteiro realmente sai da dropzone (não ao passar
+    // por elementos filhos), evitando "piscar" no estado de arraste.
+    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragActive(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    setSelectedFile(f);
+    setRemoveFile(false);
   };
 
   const handleSave = async () => {
@@ -498,9 +543,25 @@ const ErpDocuments: React.FC = () => {
                 />
               </div>
             </div>
-{/* Vincular arquivo (qualquer tipo) */}
-            <div className="rounded-xl border border-dashed p-4 space-y-3">
-              <Label className="mb-1">Arquivo vinculado</Label>
+{/* Vincular arquivo (qualquer tipo) — clique ou arraste e solte */}
+            <div
+              className={`rounded-xl border p-4 space-y-3 transition-colors cursor-pointer ${
+                dragActive ? 'border-indigo-400 bg-indigo-50/70' : 'border-dashed hover:border-indigo-300'
+              }`}
+              onClick={() => document.getElementById('erp-doc-file-input')?.click()}
+              onDragEnter={handleDragEnter}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <Label className="mb-0">Arquivo vinculado</Label>
+                {!selectedFile && !(editing && editing.arquivoNome && !removeFile) && (
+                  <span className="text-xs text-muted-foreground">
+                    {dragActive ? 'Solte o arquivo para anexar' : 'Arraste o arquivo para cá ou clique em “Vincular arquivo”'}
+                  </span>
+                )}
+              </div>
               <input
                 id="erp-doc-file-input"
                 type="file"
@@ -512,6 +573,14 @@ const ErpDocuments: React.FC = () => {
                 }}
               />
 
+              {!selectedFile && !(editing && editing.arquivoNome && !removeFile) && (
+                <div className={`flex flex-col items-center justify-center gap-2 py-8 rounded-lg border text-center transition-colors ${dragActive ? 'border-indigo-400 bg-indigo-100 text-indigo-700' : 'border-dashed border-slate-200 text-muted-foreground'}`}>
+                  <UploadCloud className="h-6 w-6" />
+                  <p className="text-sm font-medium">{dragActive ? 'Solte o arquivo aqui' : 'Arraste e solte seu arquivo'}</p>
+                  <p className="text-xs opacity-80">Qualquer tipo de arquivo · clique para selecionar</p>
+                </div>
+              )}
+
               {selectedFile ? (
                 <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-50 border">
                   <div className="flex items-center gap-2 min-w-0">
@@ -521,7 +590,7 @@ const ErpDocuments: React.FC = () => {
                       <p className="text-xs text-muted-foreground">{formatFileSize(selectedFile.size)} · pronto para envio</p>
                     </div>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedFile(null)} title="Remover seleção">
+                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }} title="Remover seleção">
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
@@ -535,10 +604,10 @@ const ErpDocuments: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <Button variant="ghost" size="sm" title="Pré-visualizar" onClick={() => setPreviewDoc(editing!)}>
+                    <Button variant="ghost" size="sm" title="Pré-visualizar" onClick={(e) => { e.stopPropagation(); setPreviewDoc(editing!); }}>
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" title="Desvincular" onClick={() => setRemoveFile(true)}>
+                    <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" title="Desvincular" onClick={(e) => { e.stopPropagation(); setRemoveFile(true); }}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -553,7 +622,7 @@ const ErpDocuments: React.FC = () => {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => document.getElementById('erp-doc-file-input')?.click()}
+                onClick={(e) => { e.stopPropagation(); document.getElementById('erp-doc-file-input')?.click(); }}
               >
                 <UploadCloud className="h-4 w-4" />
                 {selectedFile
