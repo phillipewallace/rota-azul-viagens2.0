@@ -198,7 +198,7 @@ interface DialogProps {
   open: boolean;
   doc: ErpDocument | null;
   onOpenChange: (open: boolean) => void;
-  /** Ocultar el botón "Editar" (para archivos de sub-pasta que no se editan con el editor del documento principal). */
+  /** Oculta o botão "Editar" (para arquivos da sub-pasta, que não usam o editor do documento principal). */
   hideEdit?: boolean;
 }
 

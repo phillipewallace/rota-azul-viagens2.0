@@ -244,7 +244,7 @@ router.delete('/:id/files/:fileId', async (req: any, res: any) => {
     removePhysical(r.rows[0].arquivo_url);
     res.json({ ok: true });
   } catch (e: any) {
-    logger.error('ERP-DOCS', 'Erro ao eliminar arquivo da sub-pasta', { error: e.message });
+    logger.error('ERP-DOCS', 'Erro ao remover arquivo da sub-pasta', { error: e.message });
     sendError(res, e, '[erp-documents DELETE /:id/files/:fileId]');
   }
 });
@@ -323,7 +323,7 @@ router.put('/:id', async (req: any, res: any) => {
 
 router.delete('/:id', async (req: any, res: any) => {
   try {
-    // Remove físicamente todos los archivos de la sub-pasta y el principal.
+    // Remove fisicamente todos os arquivos da sub-pasta e o arquivo principal.
     const filesQ = await pool.query(`SELECT arquivo_url FROM erp_document_files WHERE document_id = $1`, [req.params.id]);
     for (const row of filesQ.rows) removePhysical(row.arquivo_url);
 

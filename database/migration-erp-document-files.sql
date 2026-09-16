@@ -1,7 +1,7 @@
 -- ============================================================
 -- ERP · Sub-pasta: múltiplos arquivos por documento
--- Idempotente. Crea la tabla erp_document_files que guarda
--- los archivos adicionales vinculados a un documento padre.
+-- Idempotente. Cria a tabela erp_document_files, que guarda
+-- os arquivos adicionais vinculados a um documento pai.
 -- ============================================================
 BEGIN;
 

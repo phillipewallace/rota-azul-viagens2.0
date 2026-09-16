@@ -34,17 +34,17 @@ const TIPO_SUGGESTIONS = [
   'Contrato Social', 'CNPJ', 'Seguro', 'Outros',
 ];
 
-// Filtro propio de cada sub-pasta (por tipo de archivo).
+// Filtro próprio de cada sub-pasta (por tipo de arquivo).
 const SUB_FILTER_TYPES: Array<{ value: string; label: string }> = [
-  { value: 'all', label: 'Todos los tipos' },
+  { value: 'all', label: 'Todos os tipos' },
   { value: 'pdf', label: 'PDF' },
-  { value: 'image', label: 'Imagen' },
-  { value: 'office', label: 'Office / Planilla' },
+  { value: 'image', label: 'Imagem' },
+  { value: 'office', label: 'Office / Planilha' },
   { value: 'text', label: 'Texto' },
   { value: 'video', label: 'Vídeo' },
-  { value: 'audio', label: 'Audio' },
-  { value: 'archive', label: 'Comprimido' },
-  { value: 'other', label: 'Otros' },
+  { value: 'audio', label: 'Áudio' },
+  { value: 'archive', label: 'Compactado' },
+  { value: 'other', label: 'Outros' },
 ];
 
 const subFileIcon = (kind: PreviewKind) => {
@@ -393,12 +393,25 @@ const ErpDocuments: React.FC = () => {
       let arquivoTamanho: number | null = !removeFile ? (editing?.arquivoTamanho ?? null) : null;
       let arquivoTipo: string | null = !removeFile ? (editing?.arquivoTipo || null) : null;
 
+      // Regra de negócio:
+      //  - Criação com 1 arquivo apenas → arquivo vinculado ao documento (fluxo simples).
+      //  - Criação com 2+ arquivos      → sub-pasta, com cada arquivo individual.
+      //  - Edição                       → arquivo selecionado substitui o principal;
+      //                                   arquivos adicionais entram na sub-pasta.
+      const singleCreate = !editing && !selectedFile && pendingFiles.length === 1 ? pendingFiles[0] : null;
+
       if (selectedFile) {
         const up = await uploadDocumentFile(selectedFile);
         arquivoUrl = up.url;
         arquivoNome = selectedFile.name;
         arquivoTamanho = up.size;
         arquivoTipo = selectedFile.type || null;
+      } else if (singleCreate) {
+        const up = await uploadDocumentFile(singleCreate);
+        arquivoUrl = up.url;
+        arquivoNome = singleCreate.name;
+        arquivoTamanho = up.size;
+        arquivoTipo = singleCreate.type || null;
       }
 
       const payload = {
@@ -422,29 +435,34 @@ const ErpDocuments: React.FC = () => {
         docId = created.id;
       }
 
-      // 2) Processa e envia TODOS os arquivos pendentes para a sub-pasta
-      //    (sem limite por vez, 1 a 1 para não sobrecarregar o servidor).
-      if (docId && pendingFiles.length) {
-        setUploadProgress({ done: 0, total: pendingFiles.length });
+      // 2) Envia os arquivos restantes para a sub-pasta:
+      //    - Criação: apenas quando houver 2+ arquivos (com 1, ele já virou o arquivo principal).
+      //    - Edição: qualquer arquivo adicional entra na sub-pasta, um a um.
+      const subFiles = singleCreate ? [] : pendingFiles;
+      const subCount = subFiles.length;
+      if (docId && subCount > 0 && (editing || subCount > 1)) {
+        setUploadProgress({ done: 0, total: subCount });
         let done = 0;
-        for (const f of pendingFiles) {
+        for (const f of subFiles) {
           try {
             await erpService.uploadDocumentFile(docId, f);
           } catch (e: any) {
-            // Falha pontual não aborta o restante da fila.
             toast({ title: `Falha ao enviar "${f.name}"`, description: e?.message || 'Arquivo ignorado.', variant: 'destructive' });
           }
           done += 1;
-          setUploadProgress({ done, total: pendingFiles.length });
+          setUploadProgress({ done, total: subCount });
         }
       }
 
-      const totalSub = (docId && pendingFiles.length) ? pendingFiles.length : 0;
       toast({
         title: 'Documento salvo',
-        description: totalSub > 0
-          ? `${nome} salvo e sub-pasta gerada com ${totalSub} arquivo(s).`
-          : `${nome} foi salvo com sucesso.`,
+        description: singleCreate
+          ? `${nome} salvo com o arquivo "${singleCreate.name}" vinculado.`
+          : subCount > 1
+            ? `${nome} salvo e sub-pasta gerada com ${subCount} arquivo(s).`
+            : editing && subCount > 0
+              ? `${nome} atualizado · ${subCount} arquivo(s) adicionado(s) à sub-pasta.`
+              : `${nome} foi salvo com sucesso.`,
       });
       setModalOpen(false);
       setPendingFiles([]);
@@ -453,7 +471,7 @@ const ErpDocuments: React.FC = () => {
       refreshMeta();
 
       // Abre a sub-pasta do documento recém-criado para mostrar os arquivos enviados.
-      if (!editing?.id && docId && totalSub > 0) {
+      if (!editing?.id && docId && subCount > 1) {
         setExpandedIds((prev) => { const n = new Set(prev); n.add(docId as string); return n; });
         loadDocFiles({ id: docId } as ErpDocument);
       }
@@ -640,7 +658,7 @@ const ErpDocuments: React.FC = () => {
                         {d.arquivosCount ? (
                           <div className="flex items-center gap-2 min-w-0">
                             <FolderArchive className="h-4 w-4 text-slate-400 flex-shrink-0" />
-                            <span className="text-xs font-medium">{d.arquivosCount} archivo{d.arquivosCount === 1 ? '' : 's'}</span>
+                            <span className="text-xs font-medium">{d.arquivosCount} arquivo{d.arquivosCount === 1 ? '' : 's'}</span>
                             {d.arquivoNome && (
                               <span className="text-[10px] text-muted-foreground truncate max-w-[110px]" title={d.arquivoNome}>{d.arquivoNome}</span>
                             )}
@@ -689,7 +707,7 @@ const ErpDocuments: React.FC = () => {
                                 <FolderArchive className="h-4 w-4 text-indigo-500" />
                                 Sub-pasta de {d.nome}
                                 <Badge variant="secondary">
-                                  {(filesStore[d.id] || []).length} archivo{(filesStore[d.id] || []).length === 1 ? '' : 's'}
+                                  {(filesStore[d.id] || []).length} arquivo{(filesStore[d.id] || []).length === 1 ? '' : 's'}
                                 </Badge>
                               </p>
                               <Button
@@ -706,7 +724,7 @@ const ErpDocuments: React.FC = () => {
                                 <Input
                                   value={fileSearch[d.id] || ''}
                                   onChange={(e) => setFileSearch((s) => ({ ...s, [d.id]: e.target.value }))}
-                                  placeholder="Buscar archivos por nombre..."
+                                  placeholder="Buscar arquivos por nome..."
                                   className="pl-9"
                                 />
                               </div>
@@ -725,7 +743,7 @@ const ErpDocuments: React.FC = () => {
                                 onClick={(e) => { e.stopPropagation(); document.getElementById(`erp-doc-sub-input-${d.id}`)?.click(); }}
                               >
                                 <UploadCloud className="h-4 w-4" />
-                                {subUploading[d.id] ? 'Subiendo...' : 'Añadir archivos'}
+                                {subUploading[d.id] ? 'Enviando...' : 'Adicionar arquivos'}
                               </Button>
                               <input
                                 id={`erp-doc-sub-input-${d.id}`}
@@ -751,20 +769,20 @@ const ErpDocuments: React.FC = () => {
                                 <div className="flex flex-col items-center justify-center gap-2 py-3 text-center text-muted-foreground">
                                   <UploadCloud className="h-5 w-5" />
                                   <p className="text-sm font-medium">
-                                    {subDragActive[d.id] ? 'Solte aquí para añadir' : 'Arrastre y suelte nuevos archivos aquí'}
+                                    {subDragActive[d.id] ? 'Solte aqui para adicionar' : 'Arraste e solte novos arquivos aqui'}
                                   </p>
                                 </div>
                               </div>
 
                               {filesLoading[d.id] ? (
                                 <div className="p-6 text-center text-muted-foreground">
-                                  <Loader2 className="h-5 w-5 mx-auto animate-spin" /> Cargando archivos…
+                                  <Loader2 className="h-5 w-5 mx-auto animate-spin" /> Carregando arquivos…
                                 </div>
                               ) : subFiles.length === 0 ? (
                                 <div className="p-5 text-center text-muted-foreground text-sm">
                                   {(filesStore[d.id] || []).length === 0
-                                    ? 'Aún no hay archivos en esta sub-pasta — añade o arrastra uno aquí arriba.'
-                                    : 'Ningún archivo coincide con esta búsqueda y filtro.'}
+                                    ? 'Ainda não há arquivos nesta sub-pasta — adicione ou arraste um aqui acima.'
+                                    : 'Nenhum arquivo corresponde a esta busca e filtro.'}
                                 </div>
                               ) : (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -948,23 +966,19 @@ const ErpDocuments: React.FC = () => {
               </div>
             )}
 
-            {/* Sub-pasta: vários arquivos de uma única vez (sem limite) */}
-            <div
-              className={`rounded-xl border p-4 space-y-3 transition-colors cursor-pointer ${
-                dragActive ? 'border-indigo-400 bg-indigo-50/70' : 'border-dashed hover:border-indigo-300'
-              }`}
-              onClick={() => document.getElementById('erp-doc-file-input')?.click()}
-              onDragEnter={handleDragEnter}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <Label className="mb-0">Sub-pasta (arquivos adicionais)</Label>
-                <span className="text-xs text-muted-foreground">
-                  {dragActive ? 'Solte os arquivos aqui' : 'Arraste vários arquivos ou clique — sem limite por vez'}
-                </span>
+            {/* Arquivos do documento: 1 arquivo = vinculado · 2+ = sub-pasta */}
+            <div className="rounded-xl border p-4 space-y-3 bg-slate-50/60">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="mb-0">Arquivos do documento</Label>
+                {pendingFiles.length > 0 && (
+                  <span className="text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-2.5 py-0.5">
+                    {pendingFiles.length === 1
+                      ? '1 arquivo · vinculado'
+                      : `${pendingFiles.length} arquivos · sub-pasta`}
+                  </span>
+                )}
               </div>
+
               <input
                 id="erp-doc-file-input"
                 type="file"
@@ -976,44 +990,85 @@ const ErpDocuments: React.FC = () => {
                 }}
               />
 
-              <div className={`flex flex-col items-center justify-center gap-2 py-8 rounded-lg border text-center transition-colors ${dragActive ? 'border-indigo-400 bg-indigo-100 text-indigo-700' : 'border-dashed border-slate-200 text-muted-foreground'}`}>
+              <div
+                className={`flex flex-col items-center justify-center gap-1 py-6 rounded-lg border-2 border-dashed text-center cursor-pointer transition-colors ${
+                  dragActive
+                    ? 'border-indigo-400 bg-indigo-100 text-indigo-700'
+                    : 'border-slate-300 text-muted-foreground hover:border-indigo-300 hover:bg-white'
+                }`}
+                onClick={() => document.getElementById('erp-doc-file-input')?.click()}
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
                 <UploadCloud className="h-6 w-6" />
-                <p className="text-sm font-medium">{dragActive ? 'Solte os arquivos aqui' : 'Arraste e solte os arquivos'}</p>
+                <p className="text-sm font-medium">
+                  {dragActive ? 'Solte os arquivos aqui' : 'Arraste e solte os arquivos aqui'}
+                </p>
                 <p className="text-xs opacity-80">
-                  {pendingFiles.length > 0
-                    ? `${pendingFiles.length} arquivo(s) pronto(s) para envio`
-                    : 'Vários arquivos de uma vez · clique para selecionar'}
+                  {pendingFiles.length === 1
+                    ? 'Este arquivo será vinculado ao documento'
+                    : pendingFiles.length > 1
+                      ? `${pendingFiles.length} arquivos formarão uma sub-pasta`
+                      : 'ou clique para selecionar · 1 arquivo = vinculado · 2+ = sub-pasta'}
                 </p>
               </div>
 
               {pendingFiles.length > 0 && (
-                <div className="space-y-2">
-                  {pendingFiles.map((f, i) => (
-                    <div key={`${f.name}|${f.size}`} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-slate-50 border">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <FileText className="h-5 w-5 text-indigo-500 flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{f.name}</p>
-                          <p className="text-xs text-muted-foreground">{formatFileSize(f.size)} · pronto para envio</p>
+                <div className="rounded-lg border bg-white overflow-hidden">
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted/40">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {pendingFiles.length === 1
+                        ? 'Arquivo a ser vinculado'
+                        : `Arquivos da sub-pasta (${pendingFiles.length})`}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs text-red-600 hover:text-red-700"
+                      onClick={(e) => { e.stopPropagation(); setPendingFiles([]); }}
+                    >
+                      Limpar todos
+                    </Button>
+                  </div>
+                  <ul className="divide-y">
+                    {pendingFiles.map((f, i) => (
+                      <li key={`${f.name}|${f.size}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <FileText className="h-4 w-4 text-indigo-500 flex-shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{f.name}</p>
+                            <p className="text-xs text-muted-foreground">{formatFileSize(f.size)}</p>
+                          </div>
                         </div>
-                      </div>
-                      <Button variant="ghost" size="sm" onClick={() => removePendingFile(i)} title="Remover da lista">
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 flex-shrink-0"
+                          onClick={(e) => { e.stopPropagation(); removePendingFile(i); }}
+                          title="Remover arquivo"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={(e) => { e.stopPropagation(); document.getElementById('erp-doc-file-input')?.click(); }}
-              >
-                <UploadCloud className="h-4 w-4" />
-                {pendingFiles.length > 0 ? 'Adicionar mais arquivos' : 'Adicionar arquivos'}
-              </Button>
+              {pendingFiles.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => { e.stopPropagation(); document.getElementById('erp-doc-file-input')?.click(); }}
+                >
+                  <UploadCloud className="h-4 w-4" />
+                  Adicionar mais arquivos
+                </Button>
+              )}
             </div>
           </div>
 
@@ -1027,9 +1082,11 @@ const ErpDocuments: React.FC = () => {
                   : 'Salvando…'
                 : editing
                   ? 'Salvar alterações'
-                  : pendingFiles.length > 0
-                    ? `Cadastrar documento + ${pendingFiles.length} arquivo${pendingFiles.length === 1 ? '' : 's'}`
-                    : 'Cadastrar documento'}
+                  : pendingFiles.length > 1
+                    ? `Cadastrar documento · sub-pasta com ${pendingFiles.length} arquivos`
+                    : pendingFiles.length === 1
+                      ? 'Cadastrar documento com arquivo'
+                      : 'Cadastrar documento'}
             </Button>
           </DialogFooter>
         </DialogContent>
