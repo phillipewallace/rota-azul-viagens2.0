@@ -212,6 +212,7 @@ const ErpDocuments: React.FC = () => {
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [folderQueue, setFolderQueue] = useState<DroppedFolder[]>([]);
   const [folderTipo, setFolderTipo] = useState('');
+  const [folderEmpresa, setFolderEmpresa] = useState('');
   const [folderSaving, setFolderSaving] = useState(false);
   const [folderProgress, setFolderProgress] = useState<{ done: number; total: number } | null>(null);
 
@@ -407,14 +408,16 @@ const ErpDocuments: React.FC = () => {
   const openFolderBatch = (pastas: DroppedFolder[]) => {
     setFolderQueue(pastas);
     setFolderTipo('');
+    setFolderEmpresa('');
     setFolderProgress(null);
     setFolderModalOpen(true);
   };
 
-  /** Cria 1 documento por pasta: nome = nome da pasta, tipo comum informado,
-   *  numeração aleatória e arquivos vinculados automaticamente. */
+  /** Cria 1 documento por pasta: nome = nome da pasta, tipo e empresa comuns
+   *  informados, numeração aleatória e arquivos vinculados automaticamente. */
   const handleSaveFolderBatch = async () => {
     const tipo = folderTipo.trim();
+    const empresa = folderEmpresa.trim();
     if (!tipo) {
       return toast({ title: 'Tipo obrigatório', description: 'Informe o tipo dos documentos.', variant: 'destructive' });
     }
@@ -446,6 +449,7 @@ const ErpDocuments: React.FC = () => {
           nome: pasta.nome.slice(0, 255),
           tipo,
           numeracao: numeracaoAleatoria(),
+          empresaEmissora: empresa || null,
           arquivoUrl,
           arquivoNome,
           arquivoTamanho,
@@ -1490,22 +1494,38 @@ const ErpDocuments: React.FC = () => {
           <div className="flex-1 overflow-y-auto space-y-4 py-1 pr-1">
             <p className="text-sm text-muted-foreground">
               Cada pasta vira um documento: o <strong>nome</strong> vem do nome da pasta e a{' '}
-              <strong>numeração</strong> é gerada automaticamente. Informe apenas o <strong>tipo</strong>,
-              que será o mesmo para todas.
+              <strong>numeração</strong> é gerada automaticamente. Informe o <strong>tipo</strong>{' '}
+              e a <strong>empresa emissora</strong>, que serão os mesmos para todos.
             </p>
 
-            <div className="space-y-2">
-              <Label>Tipo dos documentos *</Label>
-              <Input
-                list="erp-doc-tipos-lote"
-                value={folderTipo}
-                onChange={(e) => setFolderTipo(e.target.value)}
-                placeholder="Ex: Orçamento"
-                disabled={folderSaving}
-              />
-              <datalist id="erp-doc-tipos-lote">
-                {tipoOptions.map((t) => <option key={t} value={t} />)}
-              </datalist>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Tipo dos documentos *</Label>
+                <Input
+                  list="erp-doc-tipos-lote"
+                  value={folderTipo}
+                  onChange={(e) => setFolderTipo(e.target.value)}
+                  placeholder="Ex: Orçamento"
+                  disabled={folderSaving}
+                />
+                <datalist id="erp-doc-tipos-lote">
+                  {tipoOptions.map((t) => <option key={t} value={t} />)}
+                </datalist>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Empresa emissora</Label>
+                <Input
+                  list="erp-doc-empresas-lote"
+                  value={folderEmpresa}
+                  onChange={(e) => setFolderEmpresa(e.target.value)}
+                  placeholder="Digite ou selecione"
+                  disabled={folderSaving}
+                />
+                <datalist id="erp-doc-empresas-lote">
+                  {empresaOptions.map((e) => <option key={e} value={e} />)}
+                </datalist>
+              </div>
             </div>
 
             <div className="rounded-xl border overflow-hidden">
