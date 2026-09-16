@@ -214,6 +214,7 @@ export interface ErpDocument {
   arquivoTamanho?: number;
   arquivoTipo?: string;
   arquivosCount?: number;
+  arquivosNomes?: string[];
   observacoes?: string;
   createdBy?: string;
   createdAt?: string;

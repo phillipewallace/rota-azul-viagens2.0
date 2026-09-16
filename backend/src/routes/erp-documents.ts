@@ -46,6 +46,65 @@ const removePhysical = (url?: string | null) => {
   }
 };
 
+// ── Normalização: mantém o invariante "sub-pasta só existe com 2+ arquivos" ──
+// Regras (idempotentes):
+//   1) Se o documento tem arquivo vinculado E a sub-pasta já tem arquivos, o
+//      vinculado é movido para dentro da sub-pasta (sem duplicar) e as colunas
+//      de arquivo principal são limpas.
+//   2) Se a sub-pasta sobrou com 1 único arquivo e o documento não tem
+//      vinculado, ele é promovido a arquivo vinculado simples (fluxo original).
+// Chamado após criar/atualizar documento e após adicionar/remover arquivo.
+async function normalizeDocumentFiles(docId: string, client: any = pool): Promise<void> {
+  // 1) Move o arquivo principal para dentro da sub-pasta, quando ela já tem arquivos.
+  await client.query(
+    `INSERT INTO erp_document_files
+       (document_id, arquivo_url, arquivo_nome, arquivo_tamanho, arquivo_tipo, created_by, created_at)
+     SELECT d.id, d.arquivo_url, d.arquivo_nome, d.arquivo_tamanho, d.arquivo_tipo,
+            d.created_by, COALESCE(d.created_at, NOW())
+       FROM erp_documents d
+      WHERE d.id = $1
+        AND d.arquivo_url IS NOT NULL AND d.arquivo_url <> ''
+        AND EXISTS (SELECT 1 FROM erp_document_files x WHERE x.document_id = d.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM erp_document_files y
+           WHERE y.document_id = d.id AND y.arquivo_url = d.arquivo_url
+        )`,
+    [docId],
+  );
+  await client.query(
+    `UPDATE erp_documents AS d
+        SET arquivo_url = NULL, arquivo_nome = NULL,
+            arquivo_tamanho = NULL, arquivo_tipo = NULL, updated_at = NOW()
+      WHERE d.id = $1
+        AND d.arquivo_url IS NOT NULL AND d.arquivo_url <> ''
+        AND EXISTS (SELECT 1 FROM erp_document_files x WHERE x.document_id = d.id)`,
+    [docId],
+  );
+
+  // 2) Sub-pasta com um único arquivo volta a ser registro simples.
+  await client.query(
+    `UPDATE erp_documents AS d
+        SET arquivo_url = f.arquivo_url, arquivo_nome = f.arquivo_nome,
+            arquivo_tamanho = f.arquivo_tamanho, arquivo_tipo = f.arquivo_tipo,
+            updated_at = NOW()
+       FROM erp_document_files f
+      WHERE f.document_id = d.id
+        AND d.id = $1
+        AND (d.arquivo_url IS NULL OR d.arquivo_url = '')
+        AND (SELECT COUNT(*) FROM erp_document_files x WHERE x.document_id = d.id) = 1`,
+    [docId],
+  );
+  await client.query(
+    `DELETE FROM erp_document_files f
+      USING erp_documents d
+      WHERE f.document_id = d.id
+        AND d.id = $1
+        AND d.arquivo_url = f.arquivo_url
+        AND (SELECT COUNT(*) FROM erp_document_files x WHERE x.document_id = d.id) = 1`,
+    [docId],
+  );
+}
+
 const str = (v: any, max = 2000): string | null => {
   if (v == null) return null;
   const s = String(v).trim();
@@ -75,27 +134,43 @@ const COLUMNS = `
   -- arquivosCount conta APENAS os arquivos da sub-pasta (erp_document_files).
   -- O arquivo vinculado simples NÃO conta: documento com 1 arquivo é comum.
   (SELECT COUNT(*)::int FROM erp_document_files f WHERE f.document_id = d.id)
-    AS "arquivosCount"
+    AS "arquivosCount",
+  -- Nomes dos arquivos da sub-pasta (até 10) — usado na listagem para indicar
+  -- qual arquivo casou com a busca geral sem precisar abrir a sub-pasta.
+  ARRAY(
+    SELECT f.arquivo_nome FROM erp_document_files f
+     WHERE f.document_id = d.id
+     ORDER BY f.created_at DESC
+     LIMIT 10
+  ) AS "arquivosNomes"
 `;
 
-// Mesmos campos sem o prefixo de alias d. — usado em UPDATE ... RETURNING.
+// Mesmos campos com prefixo do alias d. — usado em UPDATE ... RETURNING.
+// O alias é obrigatório: sem ele o "id" das subqueries casaria com f.id
+// (arquivo) em vez do id do documento.
 const RETURN_COLUMNS = `
-  id,
-  nome,
-  tipo,
-  numeracao,
-  empresa_emissora AS "empresaEmissora",
-  arquivo_url AS "arquivoUrl",
-  arquivo_nome AS "arquivoNome",
-  arquivo_tamanho::int AS "arquivoTamanho",
-  arquivo_tipo AS "arquivoTipo",
-  observacoes,
-  created_by AS "createdBy",
-  created_at AS "createdAt",
-  updated_at AS "updatedAt",
+  d.id,
+  d.nome,
+  d.tipo,
+  d.numeracao,
+  d.empresa_emissora AS "empresaEmissora",
+  d.arquivo_url AS "arquivoUrl",
+  d.arquivo_nome AS "arquivoNome",
+  d.arquivo_tamanho::int AS "arquivoTamanho",
+  d.arquivo_tipo AS "arquivoTipo",
+  d.observacoes,
+  d.created_by AS "createdBy",
+  d.created_at AS "createdAt",
+  d.updated_at AS "updatedAt",
   -- Mesma regra do COLUMNS: apenas arquivos da sub-pasta.
-  (SELECT COUNT(*)::int FROM erp_document_files f WHERE f.document_id = id)
-    AS "arquivosCount"
+  (SELECT COUNT(*)::int FROM erp_document_files f WHERE f.document_id = d.id)
+    AS "arquivosCount",
+  ARRAY(
+    SELECT f.arquivo_nome FROM erp_document_files f
+     WHERE f.document_id = d.id
+     ORDER BY f.created_at DESC
+     LIMIT 10
+  ) AS "arquivosNomes"
 `;
 
 function buildWhere(q: any, startIdx = 1): { where: string; params: any[] } {
@@ -105,8 +180,10 @@ function buildWhere(q: any, startIdx = 1): { where: string; params: any[] } {
   if (q.search) {
     const term = `%${String(q.search).toLowerCase()}%`;
     params.push(term);
+    // A busca abrange também os arquivos dentro das sub-pastas: pesquisar o
+    // nome de um arquivo retorna o documento que o contém.
     // eslint-disable-next-line max-len
-    conds.push(`(LOWER(d.nome) LIKE $${i} OR LOWER(COALESCE(d.numeracao,'')) LIKE $${i} OR LOWER(COALESCE(d.empresa_emissora,'')) LIKE $${i} OR LOWER(COALESCE(d.tipo,'')) LIKE $${i} OR LOWER(COALESCE(d.arquivo_nome,'')) LIKE $${i})`);
+    conds.push(`(LOWER(d.nome) LIKE $${i} OR LOWER(COALESCE(d.numeracao,'')) LIKE $${i} OR LOWER(COALESCE(d.empresa_emissora,'')) LIKE $${i} OR LOWER(COALESCE(d.tipo,'')) LIKE $${i} OR LOWER(COALESCE(d.arquivo_nome,'')) LIKE $${i} OR EXISTS (SELECT 1 FROM erp_document_files sf WHERE sf.document_id = d.id AND LOWER(COALESCE(sf.arquivo_nome,'')) LIKE $${i}))`);
     i++;
   }
   if (q.tipo) {
@@ -229,7 +306,9 @@ router.post('/:id/files', (req: any, res: any, next: any) => {
                    created_by AS "createdBy", created_at AS "createdAt"`,
         [req.params.id, url, file.originalname, file.size, file.mimetype, req.user?.username || null],
       );
-      res.status(201).json(r.rows[0]);
+      await normalizeDocumentFiles(req.params.id);
+      const fresh = await pool.query(`SELECT ${RETURN_COLUMNS} FROM erp_documents d WHERE d.id = $1`, [req.params.id]);
+      res.status(201).json(fresh.rows[0] || r.rows[0]);
     } catch (e: any) {
       logger.error('ERP-DOCS', 'Erro ao criar arquivo na sub-pasta', { error: e.message });
       sendError(res, e, '[erp-documents POST /:id/files]');
@@ -246,25 +325,8 @@ router.delete('/:id/files/:fileId', async (req: any, res: any) => {
     if (!r.rows[0]) return res.status(404).json({ error: 'Arquivo não encontrado' });
     removePhysical(r.rows[0].arquivo_url);
 
-    // Mantém a regra "sub-pasta só com 2+ arquivos": se restar apenas 1 arquivo
-    // na sub-pasta (e o documento não tiver arquivo principal), ele é promovido
-    // a arquivo vinculado simples — igual ao fluxo antigo.
-    const restQ = await pool.query(
-      `SELECT id, arquivo_url, arquivo_nome, arquivo_tamanho, arquivo_tipo
-         FROM erp_document_files WHERE document_id = $1`,
-      [req.params.id],
-    );
-    if (restQ.rows.length === 1) {
-      const f = restQ.rows[0];
-      await pool.query(
-        `UPDATE erp_documents
-            SET arquivo_url = $1, arquivo_nome = $2, arquivo_tamanho = $3,
-                arquivo_tipo = $4, updated_at = NOW()
-          WHERE id = $5 AND (arquivo_url IS NULL OR arquivo_url = '')`,
-        [f.arquivo_url, f.arquivo_nome, f.arquivo_tamanho, f.arquivo_tipo, req.params.id],
-      );
-      await pool.query(`DELETE FROM erp_document_files WHERE id = $1`, [f.id]);
-    }
+    // Mantém o invariante "sub-pasta só com 2+ arquivos": normaliza o documento.
+    await normalizeDocumentFiles(req.params.id);
 
     res.json({ ok: true });
   } catch (e: any) {
@@ -278,14 +340,11 @@ router.post('/', async (req: any, res: any) => {
     const b = req.body || {};
     const nome = str(b.nome, 255);
     if (!nome) return res.status(400).json({ error: 'Nome do documento é obrigatório' });
-    const r = await pool.query(
+    const created = await pool.query(
       `INSERT INTO erp_documents
          (nome, tipo, numeracao, empresa_emissora, arquivo_url, arquivo_nome, arquivo_tamanho, arquivo_tipo, observacoes, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING id, nome, tipo, numeracao, empresa_emissora AS "empresaEmissora",
-                 arquivo_url AS "arquivoUrl", arquivo_nome AS "arquivoNome",
-                 arquivo_tamanho::int AS "arquivoTamanho", arquivo_tipo AS "arquivoTipo",
-                 observacoes, created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt"`,
+       RETURNING id`,
       [
         nome,
         str(b.tipo, 120),
@@ -299,7 +358,8 @@ router.post('/', async (req: any, res: any) => {
         req.user?.username || null,
       ],
     );
-    res.status(201).json(r.rows[0]);
+    const fresh = await pool.query(`SELECT ${RETURN_COLUMNS} FROM erp_documents d WHERE d.id = $1`, [created.rows[0].id]);
+    res.status(201).json(fresh.rows[0]);
   } catch (e: any) {
     logger.error('ERP-DOCS', 'Erro ao criar documento', { error: e.message });
     sendError(res, e, '[erp-documents POST]');
@@ -332,13 +392,17 @@ router.put('/:id', async (req: any, res: any) => {
     sets.push('updated_at = NOW()');
     params.push(req.params.id);
     const r = await pool.query(
-      `UPDATE erp_documents SET ${sets.join(', ')}
-        WHERE id = $${params.length}
+      `UPDATE erp_documents AS d SET ${sets.join(', ')}
+        WHERE d.id = $${params.length}
        RETURNING ${RETURN_COLUMNS}`,
       params,
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Documento não encontrado' });
-    res.json(r.rows[0]);
+
+    // Garante o invariante das sub-pastas após qualquer edição de arquivo.
+    await normalizeDocumentFiles(req.params.id);
+    const fresh = await pool.query(`SELECT ${RETURN_COLUMNS} FROM erp_documents d WHERE d.id = $1`, [req.params.id]);
+    res.json(fresh.rows[0] || r.rows[0]);
   } catch (e: any) {
     logger.error('ERP-DOCS', 'Erro ao atualizar documento', { error: e.message });
     sendError(res, e, '[erp-documents PUT]');
