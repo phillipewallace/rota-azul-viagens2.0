@@ -72,8 +72,11 @@ const COLUMNS = `
   d.created_by AS "createdBy",
   d.created_at AS "createdAt",
   d.updated_at AS "updatedAt",
+  // ⚠️ arquivosCount conta APENAS os arquivos da sub-pasta (erp_document_files).
+  // O arquivo vinculado simples NÃO conta — documento com 1 arquivo vinculado é
+  // um documento comum, sem sub-pasta.
   (SELECT COUNT(*)::int FROM erp_document_files f WHERE f.document_id = d.id)
-    + CASE WHEN d.arquivo_url IS NOT NULL AND d.arquivo_url <> '' THEN 1 ELSE 0 END AS "arquivosCount"
+    AS "arquivosCount"
 `;
 
 // Mesmos campos sem o prefixo de alias d. — usado em UPDATE ... RETURNING.
@@ -91,8 +94,9 @@ const RETURN_COLUMNS = `
   created_by AS "createdBy",
   created_at AS "createdAt",
   updated_at AS "updatedAt",
+  // Mesma regra do COLUMNS: apenas arquivos da sub-pasta.
   (SELECT COUNT(*)::int FROM erp_document_files f WHERE f.document_id = id)
-    + CASE WHEN arquivo_url IS NOT NULL AND arquivo_url <> '' THEN 1 ELSE 0 END AS "arquivosCount"
+    AS "arquivosCount"
 `;
 
 function buildWhere(q: any, startIdx = 1): { where: string; params: any[] } {
@@ -242,6 +246,27 @@ router.delete('/:id/files/:fileId', async (req: any, res: any) => {
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Arquivo não encontrado' });
     removePhysical(r.rows[0].arquivo_url);
+
+    // Mantém a regra "sub-pasta só com 2+ arquivos": se restar apenas 1 arquivo
+    // na sub-pasta (e o documento não tiver arquivo principal), ele é promovido
+    // a arquivo vinculado simples — igual ao fluxo antigo.
+    const restQ = await pool.query(
+      `SELECT id, arquivo_url, arquivo_nome, arquivo_tamanho, arquivo_tipo
+         FROM erp_document_files WHERE document_id = $1`,
+      [req.params.id],
+    );
+    if (restQ.rows.length === 1) {
+      const f = restQ.rows[0];
+      await pool.query(
+        `UPDATE erp_documents
+            SET arquivo_url = $1, arquivo_nome = $2, arquivo_tamanho = $3,
+                arquivo_tipo = $4, updated_at = NOW()
+          WHERE id = $5 AND (arquivo_url IS NULL OR arquivo_url = '')`,
+        [f.arquivo_url, f.arquivo_nome, f.arquivo_tamanho, f.arquivo_tipo, req.params.id],
+      );
+      await pool.query(`DELETE FROM erp_document_files WHERE id = $1`, [f.id]);
+    }
+
     res.json({ ok: true });
   } catch (e: any) {
     logger.error('ERP-DOCS', 'Erro ao remover arquivo da sub-pasta', { error: e.message });

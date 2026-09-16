@@ -19,4 +19,24 @@ CREATE TABLE IF NOT EXISTS public.erp_document_files (
 CREATE INDEX IF NOT EXISTS erp_document_files_document_idx
   ON public.erp_document_files (document_id);
 
+-- Normalização: sub-pasta só existe com 2+ arquivos. Registros antigos com
+-- apenas 1 arquivo na sub-pasta (e sem arquivo principal) são promovidos a
+-- arquivo vinculado simples, como no fluxo original.
+UPDATE public.erp_documents d
+   SET arquivo_url = f.arquivo_url,
+       arquivo_nome = f.arquivo_nome,
+       arquivo_tamanho = f.arquivo_tamanho,
+       arquivo_tipo = f.arquivo_tipo,
+       updated_at = NOW()
+  FROM public.erp_document_files f
+ WHERE f.document_id = d.id
+   AND (d.arquivo_url IS NULL OR d.arquivo_url = '')
+   AND (SELECT COUNT(*) FROM public.erp_document_files x WHERE x.document_id = d.id) = 1;
+
+DELETE FROM public.erp_document_files f
+ USING public.erp_documents d
+ WHERE f.document_id = d.id
+   AND d.arquivo_url = f.arquivo_url
+   AND (SELECT COUNT(*) FROM public.erp_document_files x WHERE x.document_id = d.id) = 1;
+
 COMMIT;

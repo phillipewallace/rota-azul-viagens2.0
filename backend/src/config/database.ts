@@ -195,6 +195,29 @@ export const setupDatabase = async () => {
     await client.query(`GRANT ALL ON public.erp_document_files TO lipe`).catch(() => undefined);
     await client.query(`GRANT ALL ON SEQUENCE erp_document_files_id_seq TO lipe`).catch(() => undefined);
 
+    // 🔄 Normalização: sub-pasta só existe com 2+ arquivos. Registros antigos com
+    // apenas 1 arquivo na sub-pasta (e sem arquivo principal) são promovidos a
+    // arquivo vinculado simples, como no fluxo original. Idempotente.
+    await client.query(`
+      UPDATE public.erp_documents d
+         SET arquivo_url = f.arquivo_url,
+             arquivo_nome = f.arquivo_nome,
+             arquivo_tamanho = f.arquivo_tamanho,
+             arquivo_tipo = f.arquivo_tipo,
+             updated_at = NOW()
+        FROM public.erp_document_files f
+       WHERE f.document_id = d.id
+         AND (d.arquivo_url IS NULL OR d.arquivo_url = '')
+         AND (SELECT COUNT(*) FROM public.erp_document_files x WHERE x.document_id = d.id) = 1
+    `);
+    await client.query(`
+      DELETE FROM public.erp_document_files f
+       USING public.erp_documents d
+       WHERE f.document_id = d.id
+         AND d.arquivo_url = f.arquivo_url
+         AND (SELECT COUNT(*) FROM public.erp_document_files x WHERE x.document_id = d.id) = 1
+    `);
+
     console.log('âœ… ExtensÃµes e tabelas base do PostgreSQL verificadas');
 
     // ðŸ›¡ï¸ Auto-migraÃ§Ã£o defensiva â€” garante que todas as colunas usadas pelas

@@ -626,18 +626,23 @@ const ErpDocuments: React.FC = () => {
                   const canEditFile = !!d.arquivoUrl && (SPREADSHEET_EXTS.includes(ext) || OFFICE_DOC_EXTS.includes(ext));
                   const isExpanded = expandedIds.has(d.id);
                   const subFiles = visibleSubFiles(d.id);
+                  const isSub = (d.arquivosCount || 0) > 1;
                   return (
                     <React.Fragment key={d.id}>
                     <tr className={`border-t border-slate-100 ${isExpanded ? 'bg-indigo-50/40' : 'hover:bg-slate-50/60'}`}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2 max-w-[280px]">
-                          <Button
-                            variant="ghost" size="icon"
-                            title={isExpanded ? 'Ocultar sub-pasta' : 'Ver sub-pasta'}
-                            onClick={() => toggleExpand(d)}
-                          >
-                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                          </Button>
+                          {isSub ? (
+                            <Button
+                              variant="ghost" size="icon"
+                              title={isExpanded ? 'Ocultar arquivos' : 'Ver arquivos'}
+                              onClick={() => toggleExpand(d)}
+                            >
+                              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            </Button>
+                          ) : (
+                            <span className="w-9 flex-shrink-0" />
+                          )}
                           <FileText className="h-4 w-4 text-indigo-500 flex-shrink-0" />
                           <span className="truncate font-medium" title={d.nome}>{d.nome}</span>
                         </div>
@@ -652,13 +657,15 @@ const ErpDocuments: React.FC = () => {
                         <span className="truncate block" title={d.empresaEmissora}>{d.empresaEmissora || '—'}</span>
                       </td>
                       <td className="px-4 py-3">
-                        {d.arquivosCount ? (
+                        {isSub ? (
                           <div className="flex items-center gap-2 min-w-0">
                             <FolderArchive className="h-4 w-4 text-slate-400 flex-shrink-0" />
-                            <span className="text-xs font-medium">{d.arquivosCount} arquivo{d.arquivosCount === 1 ? '' : 's'}</span>
-                            {d.arquivoNome && (
-                              <span className="text-[10px] text-muted-foreground truncate max-w-[110px]" title={d.arquivoNome}>{d.arquivoNome}</span>
-                            )}
+                            <span className="text-xs font-medium">{d.arquivosCount} arquivos</span>
+                          </div>
+                        ) : d.arquivoNome ? (
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                            <span className="text-xs truncate max-w-[160px]" title={d.arquivoNome}>{d.arquivoNome}</span>
                           </div>
                         ) : (
                           <span className="text-muted-foreground">—</span>
@@ -667,10 +674,17 @@ const ErpDocuments: React.FC = () => {
                       <td className="px-4 py-3 text-muted-foreground">{fmtDate(d.createdAt)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="sm" title="Visualizar" disabled={!d.arquivoUrl}
-                            onClick={() => setPreviewDoc(d)}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
+                          {isSub ? (
+                            <Button variant="ghost" size="sm" title={isExpanded ? 'Ocultar arquivos' : 'Ver arquivos'}
+                              onClick={() => toggleExpand(d)}>
+                              <FolderArchive className="h-4 w-4 text-slate-500" />
+                            </Button>
+                          ) : (
+                            <Button variant="ghost" size="sm" title="Visualizar" disabled={!d.arquivoUrl}
+                              onClick={() => setPreviewDoc(d)}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          )}
                           {canEditFile && (
                             <Button
                               variant="ghost" size="sm"
@@ -680,10 +694,12 @@ const ErpDocuments: React.FC = () => {
                               <FileEdit className="h-4 w-4 text-emerald-600" />
                             </Button>
                           )}
-                          <Button variant="ghost" size="sm" title="Baixar" disabled={!d.arquivoUrl}
-                            onClick={() => handleDownload(d)}>
-                            <Download className="h-4 w-4" />
-                          </Button>
+                          {!isSub && (
+                            <Button variant="ghost" size="sm" title="Baixar" disabled={!d.arquivoUrl}
+                              onClick={() => handleDownload(d)}>
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button variant="ghost" size="sm" title="Editar" onClick={() => openEdit(d)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -702,7 +718,7 @@ const ErpDocuments: React.FC = () => {
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                               <p className="text-sm font-semibold flex items-center gap-2">
                                 <FolderArchive className="h-4 w-4 text-indigo-500" />
-                                Sub-pasta de {d.nome}
+                                Arquivos de {d.nome}
                                 <Badge variant="secondary">
                                   {(filesStore[d.id] || []).length} arquivo{(filesStore[d.id] || []).length === 1 ? '' : 's'}
                                 </Badge>
@@ -711,7 +727,7 @@ const ErpDocuments: React.FC = () => {
                                 variant="ghost" size="sm"
                                 onClick={() => { const n = new Set(expandedIds); n.delete(d.id); setExpandedIds(n); }}
                               >
-                                <X className="h-4 w-4" /> Cerrar
+                                <X className="h-4 w-4" /> Fechar
                               </Button>
                             </div>
 
