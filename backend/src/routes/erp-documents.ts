@@ -72,9 +72,8 @@ const COLUMNS = `
   d.created_by AS "createdBy",
   d.created_at AS "createdAt",
   d.updated_at AS "updatedAt",
-  // ⚠️ arquivosCount conta APENAS os arquivos da sub-pasta (erp_document_files).
-  // O arquivo vinculado simples NÃO conta — documento com 1 arquivo vinculado é
-  // um documento comum, sem sub-pasta.
+  -- arquivosCount conta APENAS os arquivos da sub-pasta (erp_document_files).
+  -- O arquivo vinculado simples NÃO conta: documento com 1 arquivo é comum.
   (SELECT COUNT(*)::int FROM erp_document_files f WHERE f.document_id = d.id)
     AS "arquivosCount"
 `;
@@ -94,7 +93,7 @@ const RETURN_COLUMNS = `
   created_by AS "createdBy",
   created_at AS "createdAt",
   updated_at AS "updatedAt",
-  // Mesma regra do COLUMNS: apenas arquivos da sub-pasta.
+  -- Mesma regra do COLUMNS: apenas arquivos da sub-pasta.
   (SELECT COUNT(*)::int FROM erp_document_files f WHERE f.document_id = id)
     AS "arquivosCount"
 `;
