@@ -394,24 +394,24 @@ const ErpDocuments: React.FC = () => {
       let arquivoTipo: string | null = !removeFile ? (editing?.arquivoTipo || null) : null;
 
       // Regra de negócio:
-      //  - Criação com 1 arquivo apenas → arquivo vinculado ao documento (fluxo simples).
-      //  - Criação com 2+ arquivos      → sub-pasta, com cada arquivo individual.
-      //  - Edição                       → arquivo selecionado substitui o principal;
-      //                                   arquivos adicionais entram na sub-pasta.
-      const singleCreate = !editing && !selectedFile && pendingFiles.length === 1 ? pendingFiles[0] : null;
+      //  - Com exatamente 1 arquivo (criação OU edição) → ele vira/substitui o
+      //    arquivo vinculado do documento (fluxo simples, sem sub-pasta).
+      //  - Com 2+ arquivos → sub-pasta, com cada arquivo individual.
+      //  - selectedFile (botão "Substituir arquivo") também troca o principal.
+      const singleFile = pendingFiles.length === 1 ? pendingFiles[0] : null;
 
-      if (selectedFile) {
+      if (singleFile) {
+        const up = await uploadDocumentFile(singleFile);
+        arquivoUrl = up.url;
+        arquivoNome = singleFile.name;
+        arquivoTamanho = up.size;
+        arquivoTipo = singleFile.type || null;
+      } else if (selectedFile) {
         const up = await uploadDocumentFile(selectedFile);
         arquivoUrl = up.url;
         arquivoNome = selectedFile.name;
         arquivoTamanho = up.size;
         arquivoTipo = selectedFile.type || null;
-      } else if (singleCreate) {
-        const up = await uploadDocumentFile(singleCreate);
-        arquivoUrl = up.url;
-        arquivoNome = singleCreate.name;
-        arquivoTamanho = up.size;
-        arquivoTipo = singleCreate.type || null;
       }
 
       const payload = {
@@ -435,12 +435,11 @@ const ErpDocuments: React.FC = () => {
         docId = created.id;
       }
 
-      // 2) Envia os arquivos restantes para a sub-pasta:
-      //    - Criação: apenas quando houver 2+ arquivos (com 1, ele já virou o arquivo principal).
-      //    - Edição: qualquer arquivo adicional entra na sub-pasta, um a um.
-      const subFiles = singleCreate ? [] : pendingFiles;
+      // 2) Sub-pasta apenas quando houver 2+ arquivos.
+      //    Com 1 arquivo, ele já virou o arquivo vinculado principal.
+      const subFiles = singleFile ? [] : pendingFiles;
       const subCount = subFiles.length;
-      if (docId && subCount > 0 && (editing || subCount > 1)) {
+      if (docId && subCount > 1) {
         setUploadProgress({ done: 0, total: subCount });
         let done = 0;
         for (const f of subFiles) {
@@ -456,13 +455,11 @@ const ErpDocuments: React.FC = () => {
 
       toast({
         title: 'Documento salvo',
-        description: singleCreate
-          ? `${nome} salvo com o arquivo "${singleCreate.name}" vinculado.`
-          : subCount > 1
-            ? `${nome} salvo e sub-pasta gerada com ${subCount} arquivo(s).`
-            : editing && subCount > 0
-              ? `${nome} atualizado · ${subCount} arquivo(s) adicionado(s) à sub-pasta.`
-              : `${nome} foi salvo com sucesso.`,
+        description: subCount > 1
+          ? `${nome} salvo e sub-pasta gerada com ${subCount} arquivo(s).`
+          : singleFile
+            ? `${nome}${editing ? ' atualizado' : ''} · arquivo "${singleFile.name}" vinculado.`
+            : `${nome} foi salvo com sucesso.`,
       });
       setModalOpen(false);
       setPendingFiles([]);
@@ -1008,7 +1005,9 @@ const ErpDocuments: React.FC = () => {
                 </p>
                 <p className="text-xs opacity-80">
                   {pendingFiles.length === 1
-                    ? 'Este arquivo será vinculado ao documento'
+                    ? editing
+                      ? 'Este arquivo substituirá o arquivo vinculado atual'
+                      : 'Este arquivo será vinculado ao documento'
                     : pendingFiles.length > 1
                       ? `${pendingFiles.length} arquivos formarão uma sub-pasta`
                       : 'ou clique para selecionar · 1 arquivo = vinculado · 2+ = sub-pasta'}
@@ -1020,7 +1019,9 @@ const ErpDocuments: React.FC = () => {
                   <div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-muted/40">
                     <p className="text-xs font-medium text-muted-foreground">
                       {pendingFiles.length === 1
-                        ? 'Arquivo a ser vinculado'
+                        ? editing
+                          ? 'Arquivo que substituirá o atual'
+                          : 'Arquivo a ser vinculado'
                         : `Arquivos da sub-pasta (${pendingFiles.length})`}
                     </p>
                     <Button
