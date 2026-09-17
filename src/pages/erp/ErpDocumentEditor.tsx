@@ -131,7 +131,7 @@ const ErpDocumentEditor: React.FC = () => {
     return fwb.getSheets().map((ws: any) => {
       const range = ws.getRange(0, 0, ws.getMaxRows(), ws.getMaxColumns());
       return {
-        name: ws.getName(),
+        name: (ws.getSheetName?.() ?? ws.getName?.() ?? 'Aba'),
         values: range.getValues() as unknown[][],
         formulas: (range as any).getFormulas?.() ?? [],
       };
@@ -141,21 +141,27 @@ const ErpDocumentEditor: React.FC = () => {
   const handleSave = useCallback(async () => {
     if (!doc) return;
     setSaving(true);
+    console.log('[EditorPlanilha] 💾 Salvar: iniciando…');
     try {
       const sheets = collectSheets();
+      console.log('[EditorPlanilha] 💾 Abas coletadas:', sheets.map((s) => `${s.name} (${s.values.length} linhas)`));
       const format = spreadsheetFormatFor(savedNameRef.current);
       const blob = buildSpreadsheetBlob(sheets, format);
       const file = new File([blob], savedNameRef.current, { type: spreadsheetMime(format) });
+      console.log('[EditorPlanilha] 💾 Blob gerado:', { format, bytes: blob.size, nome: savedNameRef.current });
       const up = await uploadDocumentFile(file);
+      console.log('[EditorPlanilha] 💾 Upload OK:', up);
       await erpService.updateDocument(doc.id, {
         arquivoUrl: up.url,
         arquivoNome: savedNameRef.current,
         arquivoTamanho: up.size,
         arquivoTipo: spreadsheetMime(format),
       });
+      console.log('[EditorPlanilha] ✅ Documento atualizado no banco');
       toast({ title: 'Planilha salva', description: `${savedNameRef.current} atualizado com sucesso.` });
       navigate('/erp/documentos');
     } catch (e: any) {
+      console.error('[EditorPlanilha] ❌ Erro ao salvar:', e);
       toast({
         title: 'Erro ao salvar',
         description: e?.message || 'Tente novamente.',
@@ -176,6 +182,7 @@ const ErpDocumentEditor: React.FC = () => {
   // Exporta a aba ativa como PDF (mesmo modelo do editor antigo da aba Excel).
   const handleExportPdf = useCallback(() => {
     try {
+      console.log('[EditorPlanilha] 📄 PDF: iniciando…');
       const fwb = apiRef.current?.getActiveWorkbook?.() ?? apiRef.current?.getActiveUniverSheet?.() ?? null;
       if (!fwb) throw new Error('Editor não inicializado.');
       const ws = fwb.getActiveSheet?.() ?? fwb.getSheets()[0];
@@ -198,7 +205,7 @@ const ErpDocumentEditor: React.FC = () => {
       });
       const table = trimmed.map((r) => r.slice(0, lastCol + 1));
 
-      const sheetName = ws.getName() || 'Planilha';
+      const sheetName = ws.getSheetName?.() ?? ws.getName?.() ?? 'Planilha';
       const pdf = new jsPDF({
         orientation: (table[0]?.length ?? 0) > 6 ? 'landscape' : 'portrait',
         unit: 'pt',
@@ -219,10 +226,13 @@ const ErpDocumentEditor: React.FC = () => {
           pdf.text(new Date().toLocaleString('pt-BR'), 24, 46);
         },
       });
+      console.log('[EditorPlanilha] 📄 Gerando PDF:', { aba: sheetName, linhas: table.length, colunas: table[0]?.length });
       pdf.save(
         `${(doc?.nome ?? 'planilha').replace(/[^\w\-]+/g, '_')}-${sheetName.replace(/[^\w\-]+/g, '_')}.pdf`,
       );
+      console.log('[EditorPlanilha] ✅ PDF gerado');
     } catch (e: any) {
+      console.error('[EditorPlanilha] ❌ Erro ao gerar PDF:', e);
       toast({
         title: 'Erro ao gerar PDF',
         description: e?.message || 'Tente novamente.',
