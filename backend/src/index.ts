@@ -208,12 +208,3 @@ app.listen(PORT, () => {
   logger.info('SERVER', `Servidor rodando na porta ${PORT}`);
 });
 
-// ── Aba Excel: migração automática das planilhas antigas ────────────────────
-// Roda ~5s após o boot (fora do caminho crítico de start) e processa em
-// sequência os Excel/xls/csv já enviados que ainda não têm parse.
-import { backfillSpreadsheets } from './utils/spreadsheetBackfill';
-setTimeout(() => {
-  backfillSpreadsheets().catch((e) =>
-    logger.error('ERP-XLSX', 'Backfill de planilhas falhou', { error: e?.message }),
-  );
-}, 5000);

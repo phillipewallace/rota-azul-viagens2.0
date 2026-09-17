@@ -27,8 +27,10 @@ import {
   type SheetExport,
 } from '@/utils/spreadsheetConvert';
 import {
-  ArrowLeft, Download, FileSpreadsheet, Loader2, RefreshCw, Save,
+  ArrowLeft, Download, FileDown, FileSpreadsheet, Loader2, RefreshCw, Save,
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 async function uploadDocumentFile(file: File): Promise<{ url: string; size: number }> {
   const fd = new FormData();
@@ -171,6 +173,64 @@ const ErpDocumentEditor: React.FC = () => {
     );
   }, [doc, toast]);
 
+  // Exporta a aba ativa como PDF (mesmo modelo do editor antigo da aba Excel).
+  const handleExportPdf = useCallback(() => {
+    try {
+      const fwb = apiRef.current?.getActiveWorkbook?.() ?? apiRef.current?.getActiveUniverSheet?.() ?? null;
+      if (!fwb) throw new Error('Editor não inicializado.');
+      const ws = fwb.getActiveSheet?.() ?? fwb.getSheets()[0];
+      if (!ws) throw new Error('Nenhuma aba ativa.');
+      const range = ws.getRange(0, 0, ws.getMaxRows(), ws.getMaxColumns());
+      const raw = (range.getValues() as unknown[][]) ?? [];
+
+      // Normaliza valores e apara linhas/colunas vazias do fim (a grade do
+      // Univer pode ter milhares de linhas em branco).
+      const rows = raw.map((r) => (r ?? []).map((v) =>
+        v == null ? '' : typeof v === 'object' ? String((v as any).v ?? '') : String(v),
+      ));
+      let lastRow = rows.length - 1;
+      while (lastRow >= 0 && rows[lastRow].every((c) => !c.trim())) lastRow--;
+      const trimmed = rows.slice(0, lastRow + 1);
+      if (!trimmed.length) throw new Error('A planilha está vazia.');
+      let lastCol = 0;
+      trimmed.forEach((r) => {
+        for (let c = 0; c < r.length; c++) if (r[c].trim()) lastCol = Math.max(lastCol, c);
+      });
+      const table = trimmed.map((r) => r.slice(0, lastCol + 1));
+
+      const sheetName = ws.getName() || 'Planilha';
+      const pdf = new jsPDF({
+        orientation: (table[0]?.length ?? 0) > 6 ? 'landscape' : 'portrait',
+        unit: 'pt',
+      });
+      const [head, ...body] = table;
+      autoTable(pdf, {
+        head: head ? [head] : [],
+        body: body ?? [],
+        startY: 60,
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: { fillColor: [30, 58, 138] },
+        margin: { left: 24, right: 24, top: 40 },
+        didDrawPage: () => {
+          pdf.setFontSize(11);
+          pdf.text(`${doc?.nome ?? 'Planilha'} — ${sheetName}`, 24, 34);
+          pdf.setFontSize(8);
+          pdf.setTextColor(120);
+          pdf.text(new Date().toLocaleString('pt-BR'), 24, 46);
+        },
+      });
+      pdf.save(
+        `${(doc?.nome ?? 'planilha').replace(/[^\w\-]+/g, '_')}-${sheetName.replace(/[^\w\-]+/g, '_')}.pdf`,
+      );
+    } catch (e: any) {
+      toast({
+        title: 'Erro ao gerar PDF',
+        description: e?.message || 'Tente novamente.',
+        variant: 'destructive',
+      });
+    }
+  }, [doc, toast]);
+
   return (
     <div className="h-screen flex flex-col bg-slate-50">
       {/* Barra superior */}
@@ -197,6 +257,9 @@ const ErpDocumentEditor: React.FC = () => {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={loading || !!error}>
+            <FileDown className="h-4 w-4" /> <span className="hidden sm:inline">PDF</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={handleDownloadOriginal} disabled={!doc?.arquivoUrl}>
             <Download className="h-4 w-4" /> <span className="hidden sm:inline">Original</span>
           </Button>
