@@ -14,6 +14,7 @@ import { requireAuth } from '../middleware/requireAuth';
 import { sendError } from '../utils/apiError';
 import { parsePagination, sendPaginated } from '../utils/pagination';
 import { logger } from '../utils/logger';
+import { fixUploadName } from '../utils/uploadNames';
 
 const router = Router();
 router.use(requireAuth);
@@ -304,7 +305,7 @@ router.post('/:id/files', (req: any, res: any, next: any) => {
          RETURNING id, document_id AS "documentId", arquivo_url AS "arquivoUrl", arquivo_nome AS "arquivoNome",
                    arquivo_tamanho::int AS "arquivoTamanho", arquivo_tipo AS "arquivoTipo",
                    created_by AS "createdBy", created_at AS "createdAt"`,
-        [req.params.id, url, file.originalname, file.size, file.mimetype, req.user?.username || null],
+        [req.params.id, url, fixUploadName(file.originalname), file.size, file.mimetype, req.user?.username || null],
       );
       await normalizeDocumentFiles(req.params.id);
       const fresh = await pool.query(`SELECT ${RETURN_COLUMNS} FROM erp_documents d WHERE d.id = $1`, [req.params.id]);
@@ -351,7 +352,7 @@ router.post('/', async (req: any, res: any) => {
         str(b.numeracao, 120),
         str(b.empresaEmissora, 300),
         str(b.arquivoUrl, 1000),
-        str(b.arquivoNome, 500),
+        str(b.arquivoNome == null ? b.arquivoNome : fixUploadName(b.arquivoNome), 500),
         num(b.arquivoTamanho),
         str(b.arquivoTipo, 200),
         str(b.observacoes, 2000),

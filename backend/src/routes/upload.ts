@@ -3,6 +3,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { fixUploadName } from '../utils/uploadNames';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
@@ -54,7 +55,7 @@ router.post('/', (req: any, res: any, next: any) => {
 
       const fileInfo = {
         id: uuidv4(),
-        originalName: file.originalname,
+        originalName: fixUploadName(file.originalname),
         filename: file.filename,
         size: file.size,
         mimetype: file.mimetype,

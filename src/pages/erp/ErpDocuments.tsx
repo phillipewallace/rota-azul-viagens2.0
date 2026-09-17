@@ -16,7 +16,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { erpService, type ErpCompany, type ErpDocument, type ErpDocumentFile } from '@/services/erp';
-import { API_BASE_URL } from '@/services/config';
+import { uploadDocumentFile } from '@/utils/documentUpload';
 import { confirmDialog } from '@/lib/confirm';
 import PaginationBar from '@/components/PaginationBar';
 import DocumentPreviewDialog from '@/components/erp/DocumentPreviewDialog';
@@ -73,21 +73,7 @@ const EMPTY_FORM: DocForm = { nome: '', tipo: '', numeracao: '', empresaEmissora
 
 const fmtDate = (s?: string) => (s ? new Date(s).toLocaleDateString('pt-BR') : '—');
 
-async function uploadDocumentFile(file: File): Promise<{ url: string; size: number }> {
-  const fd = new FormData();
-  fd.append('file', file);
-  const tk = localStorage.getItem('auth_token');
-  const res = await fetch(`${API_BASE_URL}/upload`, {
-    method: 'POST',
-    headers: tk ? { Authorization: `Bearer ${tk}` } : undefined,
-    body: fd,
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok || !data || !data.url) throw new Error(data?.error || 'Falha ao enviar o arquivo');
-  return { url: data.url, size: Number(data.size) || file.size };
-}
-
-// ── Arrastar pasta(s) do sistema de arquivos ────────────────────────────────
+// ── Arrastar arquivos e pastas do sistema de arquivos ──────────────────────
 
 /** Pasta arrastada + os arquivos que estavam dentro dela (recursivo). */
 interface DroppedFolder { nome: string; files: File[]; }
@@ -329,8 +315,7 @@ const ErpDocuments: React.FC = () => {
     if (arrasteNaAbaDesativado()) return;
     e.preventDefault();
     dragDepth.current += 1;
-    // Só exibe a área de soltar quando o arraste tem pasta (null = indefinido).
-    if (dragHasFolder(e.dataTransfer) !== false) setPageDrag(true);
+    if (Array.from(e.dataTransfer.types).includes('Files')) setPageDrag(true);
   };
 
   const handlePageDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -354,20 +339,13 @@ const ErpDocuments: React.FC = () => {
     dragDepth.current = 0;
     setPageDrag(false);
     if (!e.dataTransfer) return;
-    const { folders } = await readDroppedEntries(e.dataTransfer);
-    const comArquivos = folders.filter((f) => f.files.length > 0);
+    const { folders, looseFiles } = await readDroppedEntries(e.dataTransfer);
+    const comArquivos = [
+      ...folders.filter((f) => f.files.length > 0),
+      ...looseFiles.map((file) => ({ nome: file.name, files: [file] })),
+    ];
     if (!comArquivos.length) {
-      toast({
-        title: folders.length > 0 ? 'Pasta sem arquivos' : 'Nenhuma pasta detectada',
-        description: folders.length > 0
-          ? 'A(s) pasta(s) solta(s) não contêm arquivos para vincular.'
-          : 'Solte uma pasta aqui para cadastrar. Para adicionar arquivos avulsos, abra a sub-pasta do documento.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    if (comArquivos.length === 1) {
-      openFolderSingle(comArquivos[0]);
+      toast({ title: 'Nenhum arquivo encontrado', description: 'Selecione arquivos ou pastas com conteúdo.', variant: 'destructive' });
       return;
     }
     openFolderBatch(comArquivos);
@@ -401,8 +379,7 @@ const ErpDocuments: React.FC = () => {
       else mapa.set(raiz, [f]);
     }
     const pastas: DroppedFolder[] = Array.from(mapa, ([nome, fs]) => ({ nome, files: fs }));
-    if (pastas.length === 1) openFolderSingle(pastas[0]);
-    else openFolderBatch(pastas);
+    openFolderBatch(pastas);
   };
 
   const openFolderBatch = (pastas: DroppedFolder[]) => {
@@ -863,6 +840,20 @@ const ErpDocuments: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <input
+            id="erp-doc-files-input"
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              e.target.value = '';
+              if (files.length) openFolderBatch(files.map((file) => ({ nome: file.name, files: [file] })));
+            }}
+          />
+          <Button variant="outline" onClick={() => document.getElementById('erp-doc-files-input')?.click()}>
+            <UploadCloud className="h-4 w-4" /> Importar arquivos
+          </Button>
           {/* Importar pasta(s): mesma regra do arraste, via seletor do sistema. */}
           <input
             id="erp-doc-folder-input"
@@ -1487,7 +1478,7 @@ const ErpDocuments: React.FC = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FolderArchive className="h-5 w-5 text-indigo-500" />
-              Cadastrar {folderQueue.length} pasta{folderQueue.length === 1 ? '' : 's'}
+              Cadastrar {folderQueue.length} documento{folderQueue.length === 1 ? '' : 's'}
             </DialogTitle>
           </DialogHeader>
 

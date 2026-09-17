@@ -24,6 +24,7 @@ import jwt from 'jsonwebtoken';
 import { pool } from '../config/database';
 import { requireAuth } from '../middleware/requireAuth';
 import { logger } from '../utils/logger';
+import { fixUploadName } from '../utils/uploadNames';
 
 const router = Router();
 const uploadsDir = path.join(__dirname, '../../uploads');
@@ -82,12 +83,15 @@ router.get('/documents/:id/config', requireAuth, async (req: any, res: Response)
       .update(`${doc.id}|${doc.updatedAt instanceof Date ? doc.updatedAt.toISOString() : doc.updatedAt}`)
       .digest('hex');
 
+    const tituloCorrigido = fixUploadName(doc.arquivoNome || doc.id);
+
     const editorConfig: Record<string, any> = {
+      // Configurações que o DocsAPI.DocEditor recebe como 'config' direto.
       documentType: docType,
       document: {
         fileType: ext,
         key,
-        title: doc.arquivoNome,
+        title: tituloCorrigido,
         url: `${base}${doc.arquivoUrl}`,
         permissions: { edit: true, download: true, print: true },
       },
@@ -95,7 +99,7 @@ router.get('/documents/:id/config', requireAuth, async (req: any, res: Response)
         callbackUrl: `${base}/api/office/documents/${doc.id}/callback`,
         mode: 'edit',
         lang: 'pt-BR',
-        user: { id: String(req.user?.id || 'anonymous'), name: req.user?.username || 'Usuário' },
+        user: { id: String(req.user?.userId || 'anonymous'), name: req.user?.username || 'Usuário' },
         customization: {
           forcesave: true,
           compactHeader: true,
@@ -106,7 +110,7 @@ router.get('/documents/:id/config', requireAuth, async (req: any, res: Response)
     };
 
     if (OFFICE_JWT_SECRET) {
-      editorConfig.token = jwt.sign(editorConfig, OFFICE_JWT_SECRET);
+      editorConfig.token = jwt.sign(editorConfig, OFFICE_JWT_SECRET, { algorithm: 'HS256' });
     }
 
     res.json({ enabled: true, serverUrl: ONLYOFFICE_PUBLIC_URL, editorConfig });
