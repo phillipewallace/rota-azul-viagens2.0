@@ -45,6 +45,7 @@ import erpFuncionariosRoutes from './routes/erp-funcionarios';
 import erpSanitariosNewRoutes from './routes/erp-sanitarios-new';
 import erpDocumentsRoutes from './routes/erp-documents';
 import erpOfficeRoutes from './routes/erp-office';
+import erpSpreadsheetsRoutes from './routes/erp-spreadsheets';
 import appFuncionariosRoutes from './routes/app-funcionarios';
 import erpOsHistoryRoutes from './routes/erp-os-history';
 import erpOsRecolhimentoRoutes from './routes/erp-os-recolhimento';
@@ -161,6 +162,7 @@ app.use('/api/checklists', checklistsRoutes);
 app.use('/api/carretinhas', carretinhasRoutes);
 app.use('/api/erp/sanitarios-new', erpSanitariosNewRoutes);
 app.use('/api/erp/documents', erpDocumentsRoutes);
+app.use('/api/erp/spreadsheets', erpSpreadsheetsRoutes);
 app.use('/api/office', erpOfficeRoutes);
 app.use('/api/erp/service-orders', erpOsHistoryRoutes);
 app.use('/api/erp/service-orders', erpOsRecolhimentoRoutes);
@@ -205,3 +207,13 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 app.listen(PORT, () => {
   logger.info('SERVER', `Servidor rodando na porta ${PORT}`);
 });
+
+// ── Aba Excel: migração automática das planilhas antigas ────────────────────
+// Roda ~5s após o boot (fora do caminho crítico de start) e processa em
+// sequência os Excel/xls/csv já enviados que ainda não têm parse.
+import { backfillSpreadsheets } from './utils/spreadsheetBackfill';
+setTimeout(() => {
+  backfillSpreadsheets().catch((e) =>
+    logger.error('ERP-XLSX', 'Backfill de planilhas falhou', { error: e?.message }),
+  );
+}, 5000);

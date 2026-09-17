@@ -36,6 +36,7 @@ const ErpOfficeEditor = lazy(() => import("./pages/erp/ErpOfficeEditor"));
 const ErpDashboard = lazy(() => import("./pages/erp/ErpDashboard"));
 const ErpCompanies = lazy(() => import("./pages/erp/ErpCompanies"));
 const ErpDocuments = lazy(() => import("./pages/erp/ErpDocuments"));
+const ErpSpreadsheets = lazy(() => import("./pages/erp/ErpSpreadsheets"));
 const ErpFinanceiro = lazy(() => import("./pages/erp/ErpFinanceiro"));
 const ErpContracts = lazy(() => import("./pages/erp/ErpContracts"));
 const ErpAssinatura = lazy(() => import("./pages/erp/ErpAssinatura"));
@@ -151,6 +152,7 @@ function AppShell() {
             
             <Route path="empresas" element={<ErpCompanies />} />
             <Route path="documentos" element={<ErpDocuments />} />
+            <Route path="excel" element={<ErpSpreadsheets />} />
             <Route path="documentos/:id/editar" element={<ErpDocumentEditor />} />
             <Route path="documentos/:id/office" element={<ErpOfficeEditor />} />
             <Route path="funcionarios" element={<FuncionariosAdmin />} />

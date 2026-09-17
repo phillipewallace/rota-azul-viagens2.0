@@ -15,6 +15,7 @@ import { sendError } from '../utils/apiError';
 import { parsePagination, sendPaginated } from '../utils/pagination';
 import { logger } from '../utils/logger';
 import { fixUploadName } from '../utils/uploadNames';
+import { maybeParseSpreadsheetAsync, parseSpreadsheetForDocument } from '../utils/spreadsheetParse';
 
 const router = Router();
 router.use(requireAuth);
@@ -308,6 +309,8 @@ router.post('/:id/files', (req: any, res: any, next: any) => {
         [req.params.id, url, fixUploadName(file.originalname), file.size, file.mimetype, req.user?.username || null],
       );
       await normalizeDocumentFiles(req.params.id);
+      // Aba Excel: se o arquivo novo for planilha, analisa em background.
+      maybeParseSpreadsheetAsync(req.params.id, fixUploadName(file.originalname));
       const fresh = await pool.query(`SELECT ${RETURN_COLUMNS} FROM erp_documents d WHERE d.id = $1`, [req.params.id]);
       res.status(201).json(fresh.rows[0] || r.rows[0]);
     } catch (e: any) {
@@ -328,6 +331,10 @@ router.delete('/:id/files/:fileId', async (req: any, res: any) => {
 
     // Mantém o invariante "sub-pasta só com 2+ arquivos": normaliza o documento.
     await normalizeDocumentFiles(req.params.id);
+
+    // Aba Excel: o arquivo principal pode ter mudado após a remoção — reavalia.
+    const afterDelete = await pool.query(`SELECT arquivo_nome FROM erp_documents WHERE id = $1`, [req.params.id]);
+    maybeParseSpreadsheetAsync(req.params.id, afterDelete.rows[0]?.arquivo_nome);
 
     res.json({ ok: true });
   } catch (e: any) {
@@ -360,6 +367,8 @@ router.post('/', async (req: any, res: any) => {
       ],
     );
     const fresh = await pool.query(`SELECT ${RETURN_COLUMNS} FROM erp_documents d WHERE d.id = $1`, [created.rows[0].id]);
+    // Aba Excel: se o documento nasceu com planilha, analisa em background.
+    maybeParseSpreadsheetAsync(created.rows[0].id, fresh.rows[0]?.arquivo_nome);
     res.status(201).json(fresh.rows[0]);
   } catch (e: any) {
     logger.error('ERP-DOCS', 'Erro ao criar documento', { error: e.message });
@@ -403,6 +412,10 @@ router.put('/:id', async (req: any, res: any) => {
     // Garante o invariante das sub-pastas após qualquer edição de arquivo.
     await normalizeDocumentFiles(req.params.id);
     const fresh = await pool.query(`SELECT ${RETURN_COLUMNS} FROM erp_documents d WHERE d.id = $1`, [req.params.id]);
+    // Aba Excel: arquivo pode ter sido trocado/substituído — reavalia em background.
+    if (b.arquivoUrl !== undefined || b.arquivoNome !== undefined) {
+      parseSpreadsheetForDocument(req.params.id).catch(() => undefined);
+    }
     res.json(fresh.rows[0] || r.rows[0]);
   } catch (e: any) {
     logger.error('ERP-DOCS', 'Erro ao atualizar documento', { error: e.message });

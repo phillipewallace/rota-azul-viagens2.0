@@ -187,6 +187,15 @@ export const erpService = {
     return res.json() as Promise<ErpDocumentFile>;
   },
   deleteDocumentFile: (id: string, fileId: string) => req<{ ok: true }>('DELETE', `/documents/${id}/files/${fileId}`),
+  // planilhas (Aba Excel — dados processados + edições persistidas)
+  listSpreadsheets: (opts: { search?: string } = {}) => {
+    const s = opts.search ? `?search=${encodeURIComponent(opts.search)}` : '';
+    return req<ErpSpreadsheetSummary[]>('GET', `/spreadsheets${s}`);
+  },
+  getSpreadsheet: (id: string) => req<ErpSpreadsheetDetail>('GET', `/spreadsheets/${id}`),
+  saveSpreadsheet: (id: string, sheets: ErpSpreadsheetSheet[]) =>
+    req<{ documentId: string; updatedAt: string }>('PUT', `/spreadsheets/${id}`, { sheets }),
+  reparseSpreadsheet: (id: string) => req<ErpSpreadsheetDetail>('POST', `/spreadsheets/${id}/parse`, {}),
 };
 
 export interface SignedPdf {
@@ -387,6 +396,43 @@ export interface ErpVehicleComment {
   author?: string;
   createdAt: string;
 }
+
+// ─── Aba Excel: planilhas processadas ────────────────────────────────────────
+
+export interface ErpSpreadsheetSheet {
+  nome: string;
+  rows: string[][];
+  totalRows?: number;
+  totalCols?: number;
+  truncated?: boolean;
+}
+
+export interface ErpSpreadsheetSummary {
+  id: string;              // = document_id
+  nome: string;
+  tipo?: string;
+  arquivoUrl?: string;
+  arquivoNome?: string;
+  empresaEmissora?: string;
+  updatedAt?: string;
+  status: 'processando' | 'pronto' | 'erro' | 'sem_arquivo' | 'nao_planilha';
+  edited?: boolean;
+  erro?: string;
+  abasCount?: number;
+  linhasCount?: number;
+}
+
+export interface ErpSpreadsheetDetail {
+  documentId: string;
+  status: ErpSpreadsheetSummary['status'];
+  sheets?: { sheets: ErpSpreadsheetSheet[] } | null;
+  edited?: boolean;
+  erro?: string;
+  updatedAt?: string;
+  nome?: string;
+  arquivoNome?: string;
+}
+
 
 // File upload (re-uses existing /upload endpoint)
 export async function uploadSignedPdf(file: File): Promise<string> {
