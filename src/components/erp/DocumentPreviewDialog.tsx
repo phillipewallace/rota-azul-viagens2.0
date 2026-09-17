@@ -6,6 +6,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
+import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { renderAsync } from 'docx-preview';
 import {
@@ -54,47 +55,6 @@ function stripXml(xml: string): string {
     .trim();
 }
 
-/** Conjunto de strings compartilhadas do .xlsx. */
-function extractSharedStrings(xml: string): string[] {
-  const out: string[] = [];
-  const siRegex = /<si[\s>][^]*?<\/si>|<si>(.*?)<\/si>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = siRegex.exec(xml)) !== null) {
-    const tRegex = /<t[^>]*>([\s\S]*?)<\/t>/gi;
-    const texts: string[] = [];
-    let t: RegExpExecArray | null;
-    while ((t = tRegex.exec(m[0])) !== null) texts.push(t[1]);
-    out.push(texts.join('').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
-  }
-  return out;
-}
-
-/** Constrói uma prévia em forma de tabela simplificada do sheet1 do .xlsx. */
-function sheetPreview(sheetXml: string, shared: string[]): string {
-  const rows: string[][] = [];
-  const rowRegex = /<row[^>]*>([\s\S]*?)<\/row>/gi;
-  let rm: RegExpExecArray | null;
-  while ((rm = rowRegex.exec(sheetXml)) !== null) {
-    const cells: string[] = [];
-    const cellRegex = /<c[^>]*>([\s\S]*?)<\/c>/gi;
-    let cm: RegExpExecArray | null;
-    while ((cm = cellRegex.exec(rm[1])) !== null) {
-      const cell = cm[0];
-      const isString = /t="s"/.test(cell);
-      const vMatch = cell.match(/<v>([\s\S]*?)<\/v>/);
-      const raw = vMatch ? vMatch[1] : '';
-      if (isString) {
-        const idx = Number(raw);
-        cells.push(Number.isFinite(idx) && shared[idx] != null ? shared[idx] : raw);
-      } else {
-        cells.push(raw);
-      }
-    }
-    if (cells.length) rows.push(cells);
-  }
-  return rows.map((r) => r.join('  |  ')).join('\n');
-}
-
 async function loadPreviewContent(doc: ErpDocument, kind: PreviewKind): Promise<string> {
   const url = toAbsoluteUrl(doc.arquivoUrl);
   if (!url) throw new Error('Arquivo sem URL');
@@ -122,15 +82,25 @@ async function loadPreviewContent(doc: ErpDocument, kind: PreviewKind): Promise<
   const res = await fetch(url);
   if (!res.ok) throw new Error('Falha ao carregar o arquivo');
 
-  if (kind === 'office' && ['xlsx', 'pptx'].includes(ext)) {
-    const zip = await JSZip.loadAsync(await res.arrayBuffer());
-    if (ext === 'xlsx') {
-      const sharedXml = await zip.file('xl/sharedStrings.xml')?.async('string');
-      const sheetXml = await zip.file('xl/worksheets/sheet1.xml')?.async('string');
-      const shared = sharedXml ? extractSharedStrings(sharedXml) : [];
-      return sheetXml ? sheetPreview(sheetXml, shared) : '';
+  if (kind === 'office' && ['xlsx', 'xls', 'ods'].includes(ext)) {
+    // Prévia robusta via SheetJS: lê TODAS as abas (o método antigo via regex
+    // só lia xl/worksheets/sheet1.xml e falhava na maioria dos arquivos reais).
+    const wb = XLSX.read(await res.arrayBuffer(), { type: 'array' });
+    const parts: string[] = [];
+    const sheets = wb.SheetNames.slice(0, 15);
+    for (const name of sheets) {
+      const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]).replace(/\r\n/g, '\n');
+      if (!csv.trim() && sheets.length > 1) continue;
+      parts.push(sheets.length > 1 ? `═══ ${name} ═══\n${csv}` : csv);
     }
-    if (ext === 'pptx') {
+    const out = parts.join('\n\n').trim();
+    if (out) return `📋 ${wb.SheetNames.length} aba(s):\n\n${out}`;
+    // Se o SheetJS não extrair nada, segue para o fallback de metadados abaixo.
+  }
+
+  if (kind === 'office' && ext === 'pptx') {
+    const zip = await JSZip.loadAsync(await res.arrayBuffer());
+    {
       const slideNames = Object.keys(zip.files)
         .filter((n) => /^ppt\/slides\/slide\d+\.xml$/i.test(n))
         .sort((a, b) => {

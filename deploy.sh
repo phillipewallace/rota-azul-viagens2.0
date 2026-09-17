@@ -260,11 +260,30 @@ fi
 # Só define/atualiza a URL se estiver vazia ou apontando para este mesmo domínio
 # (não sobrescreve configuração manual de quem usou outro endereço/servidor).
 CUR_OFFICE_URL=$(grep -E '^ONLYOFFICE_PUBLIC_URL=' .env | head -1 | cut -d= -f2- || true)
-if [[ -z "$CUR_OFFICE_URL" || "$CUR_OFFICE_URL" == *"${SERVER_NAME}/office"* ]]; then
+# Sobrecreve se vazio, se já aponta para este domínio, ou se for uma URL
+# morta/herdada (Lovable, localhost, 127.0.0.1) — com URL morta o OnlyOffice
+# tenta baixar arquivos de um domínio inexistente e o editor abre em branco.
+if [[ -z "$CUR_OFFICE_URL" \
+   || "$CUR_OFFICE_URL" == *lovableproject.com* \
+   || "$CUR_OFFICE_URL" == *lovable.app* \
+   || "$CUR_OFFICE_URL" == *localhost* \
+   || "$CUR_OFFICE_URL" == *127.0.0.1* \
+   || "$CUR_OFFICE_URL" == *"${SERVER_NAME}/office"* ]]; then
+  if [[ -n "$CUR_OFFICE_URL" && "$CUR_OFFICE_URL" != *"${SERVER_NAME}/office"* ]]; then
+    warn "ONLYOFFICE_PUBLIC_URL herdado invalido (${CUR_OFFICE_URL}) -> corrigido para este dominio"
+  fi
   env_upsert ONLYOFFICE_PUBLIC_URL "${OFFICE_SCHEME}://${SERVER_NAME}/office"
 fi
 CUR_PUB_URL=$(grep -E '^PUBLIC_BASE_URL=' .env | head -1 | cut -d= -f2- || true)
-if [[ -z "$CUR_PUB_URL" || "$CUR_PUB_URL" == *"${SERVER_NAME}"* ]]; then
+if [[ -z "$CUR_PUB_URL" \
+   || "$CUR_PUB_URL" == *lovableproject.com* \
+   || "$CUR_PUB_URL" == *lovable.app* \
+   || "$CUR_PUB_URL" == *localhost* \
+   || "$CUR_PUB_URL" == *127.0.0.1* \
+   || "$CUR_PUB_URL" == *"${SERVER_NAME}"* ]]; then
+  if [[ -n "$CUR_PUB_URL" && "$CUR_PUB_URL" != *"${SERVER_NAME}"* ]]; then
+    warn "PUBLIC_BASE_URL herdado invalido (${CUR_PUB_URL}) -> corrigido para este dominio"
+  fi
   env_upsert PUBLIC_BASE_URL "${OFFICE_SCHEME}://${SERVER_NAME}"
 fi
 ok "Editor Office configurado → ${OFFICE_SCHEME}://${SERVER_NAME}/office"
