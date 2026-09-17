@@ -677,9 +677,11 @@ const ErpDocuments: React.FC = () => {
       // Regra de negócio:
       //  - Com exatamente 1 arquivo (criação OU edição) → ele vira/substitui o
       //    arquivo vinculado do documento (fluxo simples, sem sub-pasta).
-      //  - Com 2+ arquivos → sub-pasta, com cada arquivo individual.
+      //  - Com 2+ arquivos → o primeiro vira o arquivo vinculado principal
+      //    e o restante vai para a sub-pasta.
       //  - selectedFile (botão "Substituir arquivo") também troca o principal.
       const singleFile = pendingFiles.length === 1 ? pendingFiles[0] : null;
+      const firstPending = pendingFiles.length > 0 ? pendingFiles[0] : null;
 
       if (singleFile) {
         const up = await uploadDocumentFile(singleFile);
@@ -693,6 +695,13 @@ const ErpDocuments: React.FC = () => {
         arquivoNome = selectedFile.name;
         arquivoTamanho = up.size;
         arquivoTipo = selectedFile.type || null;
+      } else if (firstPending) {
+        // 2+ arquivos, sem seleção → primeiro vira o principal
+        const up = await uploadDocumentFile(firstPending);
+        arquivoUrl = up.url;
+        arquivoNome = firstPending.name;
+        arquivoTamanho = up.size;
+        arquivoTipo = firstPending.type || null;
       }
 
       const payload = {
@@ -718,7 +727,14 @@ const ErpDocuments: React.FC = () => {
 
       // 2) Sub-pasta apenas quando houver 2+ arquivos.
       //    Com 1 arquivo, ele já virou o arquivo vinculado principal.
-      const subFiles = singleFile ? [] : pendingFiles;
+      //    Com 2+ e sem selectedFile, o primeiro já foi usado como principal
+      //    (firstPending), então Remove da sub-pasta para evitar duplicação.
+      const subFiles =
+        singleFile
+          ? []
+          : selectedFile && firstPending
+            ? pendingFiles.filter((f) => f !== firstPending)
+            : pendingFiles;
       const subCount = subFiles.length;
       if (docId && subCount > 1) {
         setUploadProgress({ done: 0, total: subCount });
