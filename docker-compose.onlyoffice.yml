@@ -11,7 +11,14 @@
 #   ONLYOFFICE_JWT_SECRET=troque-este-segredo
 services:
   onlyoffice:
-    image: onlyoffice/documentserver:latest
+  # ⚠️ VERSÃO FIXADA (não usar :latest):
+  # A 9.4.0 introduziu um service worker (document_editor_service_worker.js) que
+  # quebra a edição de Word/PPT em navegadores com bloqueador de anúncios
+  # (Brave/AdBlock bloqueiam o arquivo "Analytics.js" pelo nome) — o editor
+  # travava no "Uncaught (in promise) TypeError: Failed to fetch".
+  # A correção oficial ainda não saiu (GitHub issue #3686, marcada "fixed-release").
+  # Atualize para 9.4.1+ quando for lançada. Ref.: https://github.com/ONLYOFFICE/DocumentServer/issues/3686
+    image: onlyoffice/documentserver:9.3.1.2
     container_name: rota-azul-onlyoffice
     restart: unless-stopped
     environment:

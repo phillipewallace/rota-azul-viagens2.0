@@ -335,9 +335,13 @@ port_livre() {
 office_run() {
   local _p="${OFFICE_PORT:-8080}" _occ
   while [[ "$_p" -le 8095 ]]; do
+    # VERSÃO FIXADA: a 9.4.0 tem um service worker que falha em navegadores com
+    # bloqueador de anúncios (bug oficial ONLYOFFICE #3686) e quebra a edição
+    # de .doc/.docx com "Failed to fetch em document_editor_service_worker.js".
+    # Reavaliar 9.4.1+ quando a ONLYOFFICE lançar a correção.
     if docker run -d --name "$CTR" --restart unless-stopped -p "127.0.0.1:${_p}:80" \
       -e JWT_ENABLED=true -e JWT_SECRET="${OFFICE_JWT}" \
-      onlyoffice/documentserver:latest >/dev/null 2>/tmp/office-run.err; then
+      onlyoffice/documentserver:9.3.1.2 >/dev/null 2>/tmp/office-run.err; then
       OFFICE_PORT="$_p"; echo "$_p" > "$OFFICE_PORT_STATE"; export OFFICE_PORT
       return 0
     fi
