@@ -124,6 +124,7 @@ const COLUMNS = `
   d.tipo,
   d.numeracao,
   d.empresa_emissora AS "empresaEmissora",
+  d.folder_id AS "folderId",
   d.arquivo_url AS "arquivoUrl",
   d.arquivo_nome AS "arquivoNome",
   d.arquivo_tamanho::int AS "arquivoTamanho",
@@ -155,6 +156,7 @@ const RETURN_COLUMNS = `
   d.tipo,
   d.numeracao,
   d.empresa_emissora AS "empresaEmissora",
+  d.folder_id AS "folderId",
   d.arquivo_url AS "arquivoUrl",
   d.arquivo_nome AS "arquivoNome",
   d.arquivo_tamanho::int AS "arquivoTamanho",
@@ -198,6 +200,17 @@ function buildWhere(q: any, startIdx = 1): { where: string; params: any[] } {
     conds.push(`LOWER(COALESCE(d.empresa_emissora,'')) LIKE $${i}`);
     i++;
   }
+  // Pasta do explorer: folderId=<uuid> filtra a pasta; 'root' filtra a raiz
+  // (documentos sem pasta); ausente = todos (retrocompatível).
+  if (q.folderId && q.folderId !== 'all') {
+    if (q.folderId === 'root') {
+      conds.push('d.folder_id IS NULL');
+    } else {
+      params.push(String(q.folderId));
+      conds.push(`d.folder_id = $${i}`);
+      i++;
+    }
+  }
   return { where: conds.length ? `WHERE ${conds.join(' AND ')}` : '', params };
 }
 
@@ -213,15 +226,26 @@ router.get('/tipos', async (_req: any, res: any) => {
   }
 });
 
+// Colunas ordenáveis do explorer (whitelist — nunca interpola input do usuário).
+const SORTABLE: Record<string, string> = {
+  data: 'd.created_at',
+  nome: 'd.nome',
+  tipo: 'd.tipo',
+  empresa: 'd.empresa_emissora',
+  tamanho: 'd.arquivo_tamanho',
+};
+
 router.get('/', async (req: any, res: any) => {
   try {
     const { where, params } = buildWhere(req.query);
+    const sortCol = SORTABLE[String(req.query.sort || '')] || 'd.created_at';
+    const sortDir = String(req.query.dir || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
     const pg = parsePagination(req, params.length);
     const rowsQ = await pool.query(
       `SELECT ${COLUMNS}
          FROM erp_documents d
          ${where}
-        ORDER BY d.created_at DESC
+        ORDER BY ${sortCol} ${sortDir} NULLS LAST, d.id DESC
         ${pg.sql}`,
       [...params, ...pg.params],
     );
@@ -343,8 +367,8 @@ router.post('/', async (req: any, res: any) => {
     if (!nome) return res.status(400).json({ error: 'Nome do documento é obrigatório' });
     const created = await pool.query(
       `INSERT INTO erp_documents
-         (nome, tipo, numeracao, empresa_emissora, arquivo_url, arquivo_nome, arquivo_tamanho, arquivo_tipo, observacoes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (nome, tipo, numeracao, empresa_emissora, arquivo_url, arquivo_nome, arquivo_tamanho, arquivo_tipo, observacoes, created_by, folder_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING id`,
       [
         nome,
@@ -357,6 +381,7 @@ router.post('/', async (req: any, res: any) => {
         str(b.arquivoTipo, 200),
         str(b.observacoes, 2000),
         req.user?.username || null,
+        str(b.folderId, 36),
       ],
     );
     const fresh = await pool.query(`SELECT ${RETURN_COLUMNS} FROM erp_documents d WHERE d.id = $1`, [created.rows[0].id]);
@@ -384,6 +409,7 @@ router.put('/:id', async (req: any, res: any) => {
     if (b.tipo !== undefined) set('tipo', str(b.tipo, 120));
     if (b.numeracao !== undefined) set('numeracao', str(b.numeracao, 120));
     if (b.empresaEmissora !== undefined) set('empresa_emissora', str(b.empresaEmissora, 300));
+    if (b.folderId !== undefined) set('folder_id', b.folderId ? str(b.folderId, 36) : null);
     if (b.arquivoUrl !== undefined) set('arquivo_url', str(b.arquivoUrl, 1000));
     if (b.arquivoNome !== undefined) set('arquivo_nome', str(b.arquivoNome, 500));
     if (b.arquivoTamanho !== undefined) set('arquivo_tamanho', num(b.arquivoTamanho));

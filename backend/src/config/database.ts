@@ -21,11 +21,15 @@ const pool = new Pool({
 });
 
 export const setupDatabase = async () => {
+  // `client` liberado no finally: se o setup falhar no meio (ex.: tabela ausente),
+  // a conexão não pode ficar presa — qualquer `pool.end()` posterior (scripts de
+  // teste, shutdown) ficaria pendurado esperando essa conexão para sempre.
+  let client: any;
   try {
     logger.info(TAG, `Conectando ao banco de dados: ${process.env.DB_NAME || 'alchemy_rotas'}`);
     
     // Testa a conexÃ£o
-    const client = await pool.connect();
+    client = await pool.connect();
     logger.info(TAG, `Conectado ao banco de dados '${process.env.DB_NAME || 'alchemy_rotas'}'`);
     
     // Verifica se as extensÃµes estÃ£o instaladas
@@ -194,6 +198,36 @@ export const setupDatabase = async () => {
     `);
     await client.query(`GRANT ALL ON public.erp_document_files TO lipe`).catch(() => undefined);
     await client.query(`GRANT ALL ON SEQUENCE erp_document_files_id_seq TO lipe`).catch(() => undefined);
+
+    // 📁 Garantir tabela erp_folders (Explorer de Documentos — árvore de pastas)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS public.erp_folders (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        nome TEXT NOT NULL,
+        parent_id UUID REFERENCES public.erp_folders(id) ON DELETE CASCADE,
+        created_by TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS erp_folders_parent_idx ON public.erp_folders (parent_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS erp_folders_nome_idx ON public.erp_folders (LOWER(nome))
+    `);
+    await client.query(`GRANT ALL ON public.erp_folders TO lipe`).catch(() => undefined);
+    await client.query(`GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO lipe`).catch(() => undefined);
+    // Pasta de destino do documento (NULL = raiz). SET NULL: excluir a pasta
+    // devolve os documentos para a raiz — nunca perde documento.
+    await client.query(`
+      ALTER TABLE public.erp_documents
+        ADD COLUMN IF NOT EXISTS folder_id UUID
+        REFERENCES public.erp_folders(id) ON DELETE SET NULL
+    `).catch(() => undefined);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS erp_documents_folder_idx ON public.erp_documents (folder_id)
+    `).catch(() => undefined);
 
     // 🔄 Normalização: sub-pasta só existe com 2+ arquivos. Idempotente.
     // 1) Documento com arquivo vinculado E sub-pasta com arquivos: o vinculado é
@@ -449,13 +483,18 @@ export const setupDatabase = async () => {
 
     console.log('âœ… Colunas crÃ­ticas verificadas');
 
-    client.release();
     console.log('âœ… ConfiguraÃ§Ã£o do banco de dados completa');
   } catch (err) {
     console.error('âŒ Erro ao configurar o banco de dados:', err);
     console.error('ðŸ” Verifique se o PostgreSQL estÃ¡ rodando e as credenciais estÃ£o corretas');
     console.error('ðŸ“ Para criar o banco, execute: CREATE DATABASE alchemy_rotas;');
     throw err;
+  } finally {
+    try {
+      client?.release();
+    } catch {
+      // nada a fazer: a conexão já foi devolvida ao pool
+    }
   }
 };
 

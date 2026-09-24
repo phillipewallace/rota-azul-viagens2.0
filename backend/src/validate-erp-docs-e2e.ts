@@ -156,7 +156,7 @@ async function cenarios2(ctx: any, docA: any, afterDel: any) {
   check((s1.json?.data ?? s1.json).some((d: any) => d.id === docB.id), 'busca pelo nome do documento');
   const s2 = await api('GET', `${base}?search=nadaaqui`);
   check(((s2.json?.data ?? s2.json) || []).length === 0, 'termo inexistente retorna vazio');
-  const s3 = await api('GET', `${base}?search=${encodeURIComponent(afterDel.arquivoNome)}`);
+  const s3 = await api('GET', `${base}?search=${encodeURIComponent(afterDel.json?.arquivoNome)}`);
   check((s3.json?.data ?? s3.json).some((d: any) => d.id === docA.id), 'busca por arquivo vinculado simples');
 }
 

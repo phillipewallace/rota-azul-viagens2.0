@@ -138,11 +138,14 @@ export const erpService = {
   },
   deleteSignedPdf: (id: string) => req<{ ok: true }>('DELETE', `/signed-pdfs/${id}`),
   // documentos (Central de Documentos — arquivos de qualquer tipo)
-  listDocuments: (opts: { search?: string; tipo?: string; empresa?: string } & PageParams = {}) => {
+  listDocuments: (opts: { search?: string; tipo?: string; empresa?: string; folderId?: string; sort?: string; dir?: 'asc' | 'desc' } & PageParams = {}) => {
     const q = new URLSearchParams();
     if (opts.search) q.set('search', opts.search);
     if (opts.tipo) q.set('tipo', opts.tipo);
     if (opts.empresa) q.set('empresa', opts.empresa);
+    if (opts.folderId) q.set('folderId', opts.folderId);
+    if (opts.sort) q.set('sort', opts.sort);
+    if (opts.dir) q.set('dir', opts.dir);
     appendPageParams(q, opts);
     const s = q.toString();
     const url = `/documents${s ? '?' + s : ''}`;
@@ -187,6 +190,14 @@ export const erpService = {
     return res.json() as Promise<ErpDocumentFile>;
   },
   deleteDocumentFile: (id: string, fileId: string) => req<{ ok: true }>('DELETE', `/documents/${id}/files/${fileId}`),
+  // pastas (Explorer de Documentos — árvore hierárquica)
+  listFolders: () => req<ErpFolder[]>('GET', '/folders'),
+  createFolder: (data: { nome: string; parentId?: string | null }) =>
+    req<ErpFolder>('POST', '/folders', data),
+  updateFolder: (id: string, data: { nome?: string; parentId?: string | null }) =>
+    req<ErpFolder>('PUT', `/folders/${id}`, data),
+  deleteFolder: (id: string) =>
+    req<{ ok: true; documentosMovidos: number; subpastasMovidas: number }>('DELETE', `/folders/${id}`),
   // planilhas (Aba Excel — dados processados + edições persistidas)
   listSpreadsheets: (opts: { search?: string } = {}) => {
     const s = opts.search ? `?search=${encodeURIComponent(opts.search)}` : '';
@@ -218,6 +229,7 @@ export interface ErpDocument {
   tipo?: string;
   numeracao?: string;
   empresaEmissora?: string;
+  folderId?: string | null;
   arquivoUrl?: string;
   arquivoNome?: string;
   arquivoTamanho?: number;
@@ -239,6 +251,16 @@ export interface ErpDocumentFile {
   arquivoTipo?: string;
   createdBy?: string;
   createdAt?: string;
+}
+
+export interface ErpFolder {
+  id: string;
+  nome: string;
+  parentId?: string | null;
+  documentosCount?: number;
+  subpastasCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export async function uploadSignedPdfBlob(

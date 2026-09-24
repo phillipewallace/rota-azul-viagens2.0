@@ -15,11 +15,12 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
-import { erpService, type ErpCompany, type ErpDocument, type ErpDocumentFile } from '@/services/erp';
+import { erpService, type ErpCompany, type ErpDocument, type ErpDocumentFile, type ErpFolder } from '@/services/erp';
 import { uploadDocumentFile } from '@/utils/documentUpload';
 import { confirmDialog } from '@/lib/confirm';
 import PaginationBar from '@/components/PaginationBar';
 import DocumentPreviewDialog from '@/components/erp/DocumentPreviewDialog';
+import FolderTree, { DOC_DRAG_MIME } from '@/components/erp/FolderTree';
 import { formatFileSize, getPreviewKind, downloadFileFromUrl, previewKindLabels, type PreviewKind } from '@/utils/documentFiles';
 import { toAbsoluteUrl } from '@/utils/absoluteUrl';
 import { SPREADSHEET_EXTS, OFFICE_DOC_EXTS } from '@/utils/spreadsheetConvert';
@@ -27,6 +28,7 @@ import {
   Plus, Search, RefreshCw, Trash2, Pencil, Eye, Download, FolderOpen, X,
   FileText, Filter, UploadCloud, FileQuestion, FileEdit, ChevronDown, ChevronRight,
   FolderArchive, Loader2, FileImage, FileVideo, FileAudio, FileArchive, FileSpreadsheet, FileType, ExternalLink,
+  LayoutGrid, List, ChevronUp, FolderInput, Folder,
 } from 'lucide-react';
 
 const TIPO_SUGGESTIONS = [
@@ -192,6 +194,20 @@ const ErpDocuments: React.FC = () => {
   // Arrastar pasta(s) para a aba Documentos.
   const [pageDrag, setPageDrag] = useState(false);
   const dragDepth = useRef(0);
+
+  // ── Explorer: pastas, navegação, visualização, seleção e ordenação ────────
+  const [folders, setFolders] = useState<ErpFolder[]>([]);
+  /** 'root' = documentos sem pasta; senão o id da pasta aberta. */
+  const [currentFolder, setCurrentFolder] = useState<string>('root');
+  const [viewMode, setViewMode] = useState<'grid' | 'details'>('details');
+  const [sortKey, setSortKey] = useState<string>('data');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  /** Menu de contexto: posição + ids alvo (documentos selecionados). */
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; docIds: string[] } | null>(null);
+  /** Dialog "Mover para…" — ids dos documentos a mover (null = fechado). */
+  const [moveDlgIds, setMoveDlgIds] = useState<string[] | null>(null);
+  const [moveSaving, setMoveSaving] = useState(false);
   // Nome da pasta que originou o cadastro simples (mostrado como dica no modal).
   const [folderOrigin, setFolderOrigin] = useState<string | null>(null);
   // Cadastro em lote: 2+ pastas soltas de uma vez → pergunta somente o tipo.
@@ -207,28 +223,57 @@ const ErpDocuments: React.FC = () => {
     return () => clearTimeout(t);
   }, [q]);
 
-  useEffect(() => { setPage(1); }, [tipoFilter, empresaFilter, qDebounced, pageSize]);
+  useEffect(() => { setPage(1); }, [tipoFilter, empresaFilter, qDebounced, pageSize, currentFolder, sortKey, sortDir]);
+
+  // Preferência de visualização (grade x detalhes) persistida por usuário.
+  useEffect(() => {
+    const saved = localStorage.getItem('erp-docs-view');
+    if (saved === 'grid' || saved === 'details') setViewMode(saved);
+  }, []);
+  const changeView = (m: 'grid' | 'details') => {
+    setViewMode(m);
+    localStorage.setItem('erp-docs-view', m);
+  };
+
+  const loadFolders = useCallback(async () => {
+    try {
+      setFolders(await erpService.listFolders());
+    } catch { /* sidebar degrada para só-raiz em caso de erro */ }
+  }, []);
+
+  useEffect(() => { loadFolders(); }, [loadFolders]);
 
   const load = useCallback(async () => {
     const id = ++reqRef.current;
     setLoading(true);
     try {
       const paged = await erpService.listDocuments({
+        // Com termo de busca, varre TODAS as pastas (como antes do explorer);
+        // sem busca, lista apenas a pasta aberta.
         search: qDebounced || undefined,
+        folderId: qDebounced.trim() ? undefined : currentFolder,
         tipo: tipoFilter === 'all' ? undefined : tipoFilter,
         empresa: empresaFilter === 'all' ? undefined : empresaFilter,
+        sort: sortKey,
+        dir: sortDir,
         page,
         pageSize,
       });
       if (id !== reqRef.current) return;
       setItems(paged.data || []);
       setTotal(paged.total || 0);
+      setSelectedIds((prev) => {
+        if (!prev.size) return prev;
+        const visible = new Set((paged.data || []).map((d: ErpDocument) => d.id));
+        const next = new Set([...prev].filter((x) => visible.has(x)));
+        return next.size === prev.size ? prev : next;
+      });
     } catch (e: any) {
       if (id === reqRef.current) toast({ title: 'Erro ao carregar documentos', description: e?.message, variant: 'destructive' });
     } finally {
       if (id === reqRef.current) setLoading(false);
     }
-  }, [qDebounced, tipoFilter, empresaFilter, page, pageSize, toast]);
+  }, [qDebounced, currentFolder, tipoFilter, empresaFilter, sortKey, sortDir, page, pageSize, toast]);
 
   useEffect(() => {
     erpService.listCompanies().then(setCompanies).catch(() => {});
@@ -339,6 +384,9 @@ const ErpDocuments: React.FC = () => {
     dragDepth.current = 0;
     setPageDrag(false);
     if (!e.dataTransfer) return;
+    // Arraste interno de documentos (seleção → árvore): quem cuida disso é o
+    // FolderTree; se soltou fora dele, não faz nada (evita toast enganoso).
+    if (Array.from(e.dataTransfer.types).includes(DOC_DRAG_MIME)) return;
     const { folders, looseFiles } = await readDroppedEntries(e.dataTransfer);
     const comArquivos = [
       ...folders.filter((f) => f.files.length > 0),
@@ -427,6 +475,7 @@ const ErpDocuments: React.FC = () => {
           tipo,
           numeracao: numeracaoAleatoria(),
           empresaEmissora: empresa || null,
+          folderId: currentFolder === 'root' ? null : currentFolder,
           arquivoUrl,
           arquivoNome,
           arquivoTamanho,
@@ -710,6 +759,10 @@ const ErpDocuments: React.FC = () => {
         numeracao: form.numeracao.trim() || null,
         empresaEmissora: form.empresaEmissora.trim() || null,
         observacoes: form.observacoes.trim() || null,
+        // Na criação, o documento nasce na pasta aberta no explorer.
+        // Na edição, folderId não é enviado — a posição atual é preservada
+        // (mover é feito por arrastar/menu "Mover para…").
+        ...(editing ? {} : { folderId: currentFolder === 'root' ? null : currentFolder }),
         arquivoUrl,
         arquivoNome,
         arquivoTamanho,
@@ -785,6 +838,7 @@ const ErpDocuments: React.FC = () => {
         setUsedEmpresas(Array.isArray(m.empresas) ? m.empresas.map((x) => x.empresaEmissora).filter(Boolean) : []);
       })
       .catch(() => {});
+    loadFolders();
   };
 
   const handleDelete = async (d: ErpDocument) => {
@@ -822,6 +876,206 @@ const ErpDocuments: React.FC = () => {
       navigate(`/erp/documentos/${d.id}/office`);
     }
   };
+
+  // ── Explorer: navegação, ordenação, seleção, menu de contexto, mover ──────
+
+  const selectFolder = (id: string) => {
+    setCurrentFolder(id);
+    setSelectedIds(new Set());
+    setExpandedIds(new Set());
+    setCtxMenu(null);
+  };
+
+  /** Caminho da pasta atual (para o breadcrumb). */
+  const folderPath = useMemo(() => {
+    if (currentFolder === 'root') return [] as ErpFolder[];
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    const path: ErpFolder[] = [];
+    let cursor: string | null = currentFolder;
+    for (let g = 0; cursor && g < 60; g += 1) {
+      const f = byId.get(cursor);
+      if (!f) break;
+      path.unshift(f);
+      cursor = f.parentId || null;
+    }
+    return path;
+  }, [currentFolder, folders]);
+
+  /** Pastas achatadas com profundidade (para o dialog "Mover para…"). */
+  const flatFolders = useMemo(() => {
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    const depthOf = (f: ErpFolder) => {
+      let d = 0;
+      let c: string | null = f.parentId || null;
+      while (c && d < 60) { d += 1; c = byId.get(c)?.parentId || null; }
+      return d;
+    };
+    return [...folders]
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+      .map((f) => ({ f, depth: depthOf(f) }));
+  }, [folders]);
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(key);
+      setSortDir(key === 'nome' || key === 'tipo' || key === 'empresa' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortIcon = (key: string) =>
+    sortKey !== key ? null
+      : sortDir === 'asc' ? <ChevronUp className="h-3 w-3 inline ml-1" />
+        : <ChevronDown className="h-3 w-3 inline ml-1" />;
+
+  /** Clique com Shift = intervalo; Ctrl/Meta = alterna; simples = substitui. */
+  const handleRowClick = (d: ErpDocument, e: React.MouseEvent, index: number) => {
+    if (ctxMenu) setCtxMenu(null);
+    if (e.shiftKey) {
+      const anchor = items.findIndex((x) => selectedIds.has(x.id));
+      const [from, to] = anchor >= 0 ? [Math.min(anchor, index), Math.max(anchor, index)] : [index, index];
+      const range = items.slice(from, to + 1).map((x) => x.id);
+      setSelectedIds((prev) => {
+        const n = new Set(anchor >= 0 ? prev : []);
+        range.forEach((id) => n.add(id));
+        return n;
+      });
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedIds((prev) => {
+        const n = new Set(prev);
+        if (n.has(d.id)) n.delete(d.id);
+        else n.add(d.id);
+        return n;
+      });
+      return;
+    }
+    setSelectedIds(new Set([d.id]));
+  };
+
+  const openContextMenu = (e: React.MouseEvent, docIds: string[]) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedIds(new Set(docIds));
+    setCtxMenu({ x: e.clientX, y: e.clientY, docIds });
+  };
+
+  /** Documento "cabeça" do menu de contexto (primeiro id). */
+  const ctxDoc = ctxMenu ? items.find((d) => d.id === ctxMenu.docIds[0]) || null : null;
+
+  // Fecha o menu de contexto ao clicar/rolar em qualquer lugar.
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [ctxMenu]);
+
+  /** Duplo clique (Explorer): sub-pasta abre · planilha/office vai pro editor ·
+   *  o resto abre a pré-visualização (ou o modal de edição se não tem arquivo). */
+  const handleOpen = (d: ErpDocument) => {
+    const ext = fileExtension(d.arquivoNome);
+    if ((d.arquivosCount || 0) > 1) {
+      if (viewMode !== 'details') changeView('details');
+      toggleExpand(d);
+      return;
+    }
+    if (d.arquivoUrl && (SPREADSHEET_EXTS.includes(ext) || OFFICE_DOC_EXTS.includes(ext))) {
+      handleEditFile(d);
+      return;
+    }
+    if (d.arquivoUrl) setPreviewDoc(d);
+    else openEdit(d);
+  };
+
+  /** Move documentos (ids) para a pasta destino (null = raiz). */
+  const moveDocs = async (ids: string[], folderId: string | null) => {
+    if (!ids.length) return;
+    setMoveSaving(true);
+    try {
+      await Promise.all(ids.map((id) => erpService.updateDocument(id, { folderId })));
+      toast({
+        title: ids.length === 1 ? 'Documento movido' : `${ids.length} documentos movidos`,
+        description: folderId
+          ? `Para "${folders.find((f) => f.id === folderId)?.nome || 'a pasta'}".`
+          : 'Para a raiz (Documentos).',
+      });
+      setMoveDlgIds(null);
+      setSelectedIds(new Set());
+      setCtxMenu(null);
+      await load();
+      loadFolders();
+    } catch (e: any) {
+      toast({ title: 'Erro ao mover', description: e?.message || 'Tente novamente.', variant: 'destructive' });
+    } finally {
+      setMoveSaving(false);
+    }
+  };
+
+  /** Exclui vários documentos em lote (mesma confirmação do individual). */
+  const handleDeleteMany = async (ids: string[]) => {
+    if (!ids.length) return;
+    const ok = await confirmDialog({
+      title: ids.length === 1 ? 'Excluir documento?' : `Excluir ${ids.length} documentos?`,
+      description: ids.length === 1
+        ? 'Este documento será removido permanentemente, junto com seus arquivos.'
+        : 'Os documentos selecionados serão removidos permanentemente, junto com seus arquivos.',
+      confirmLabel: 'Excluir',
+      destructive: true,
+    });
+    if (!ok) return;
+    let falhas = 0;
+    for (const id of ids) {
+      try { await erpService.deleteDocument(id); } catch { falhas += 1; }
+    }
+    setSelectedIds(new Set());
+    setCtxMenu(null);
+    toast({
+      title: falhas ? 'Exclusão parcial' : 'Documentos excluídos',
+      description: falhas ? `${falhas} falha(s) — tente novamente.` : undefined,
+      variant: falhas ? 'destructive' : undefined,
+    });
+    await load();
+    refreshMeta();
+    loadFolders();
+  };
+
+  /** Arraste de documentos: leva TODOS os selecionados (ou só o clicado). */
+  const handleDocDragStart = (e: React.DragEvent, d: ErpDocument) => {
+    const ids = selectedIds.has(d.id) ? Array.from(selectedIds) : [d.id];
+    if (!selectedIds.has(d.id)) setSelectedIds(new Set(ids));
+    e.dataTransfer.setData(DOC_DRAG_MIME, JSON.stringify(ids));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  // Atalhos: Del = excluir seleção · Ctrl+A = tudo · Esc = limpar seleção/menu.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tgt = e.target as HTMLElement | null;
+      const typing = !!tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable);
+      if (typing || modalOpen || folderModalOpen || previewDoc || moveDlgIds) return;
+      if (e.key === 'Delete' && selectedIds.size) {
+        e.preventDefault();
+        handleDeleteMany(Array.from(selectedIds));
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setSelectedIds(new Set(items.map((x) => x.id)));
+      } else if (e.key === 'Escape') {
+        setCtxMenu(null);
+        setSelectedIds(new Set());
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds, items, modalOpen, folderModalOpen, previewDoc, moveDlgIds]);
 
   return (
     <div
@@ -897,6 +1151,88 @@ const ErpDocuments: React.FC = () => {
         </div>
       </header>
 
+      <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] gap-4 items-start">
+        {/* Sidebar: árvore de pastas */}
+        <FolderTree
+          folders={folders}
+          current={currentFolder}
+          onSelect={selectFolder}
+          onChanged={loadFolders}
+          onMoveDocs={(folderId, ids) => moveDocs(ids, folderId)}
+        />
+
+        <div className="space-y-4 min-w-0">
+          {/* Breadcrumb + visualização + barra de seleção */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <nav className="flex items-center gap-1 text-sm text-muted-foreground flex-wrap min-w-0" aria-label="Caminho das pastas">
+              <button
+                type="button"
+                onClick={() => selectFolder('root')}
+                className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-slate-100 ${currentFolder === 'root' ? 'text-indigo-700 font-medium bg-indigo-50' : ''}`}
+                title="Raiz — documentos sem pasta"
+              >
+                <FolderOpen className="h-4 w-4" /> Documentos
+              </button>
+              {folderPath.map((f) => (
+                <React.Fragment key={f.id}>
+                  <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" />
+                  <button
+                    type="button"
+                    onClick={() => selectFolder(f.id)}
+                    className="rounded px-1.5 py-0.5 hover:bg-slate-100 truncate max-w-[180px] text-slate-700"
+                    title={f.nome}
+                  >
+                    {f.nome}
+                  </button>
+                </React.Fragment>
+              ))}
+            </nav>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-sm text-indigo-800">
+                  <b className="tabular-nums">{selectedIds.size}</b>
+                  <span className="hidden sm:inline">selecionado(s)</span>
+                  <Button
+                    size="sm" variant="outline" className="h-7 px-2 bg-white"
+                    onClick={() => setMoveDlgIds(Array.from(selectedIds))}
+                    title="Mover seleção para outra pasta"
+                  >
+                    <FolderInput className="h-3.5 w-3.5 mr-1" /> Mover para…
+                  </Button>
+                  <Button
+                    size="sm" variant="outline"
+                    className="h-7 px-2 bg-white text-red-600 hover:text-red-700"
+                    onClick={() => handleDeleteMany(Array.from(selectedIds))}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" /> Excluir
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setSelectedIds(new Set())}>
+                    Limpar
+                  </Button>
+                </div>
+              )}
+
+              {/* Alternador Grade x Detalhes */}
+              <div className="flex items-center rounded-md border bg-white p-0.5" role="group" aria-label="Modo de visualização">
+                <Button
+                  size="sm" variant={viewMode === 'details' ? 'secondary' : 'ghost'}
+                  className="h-7 px-2" title="Visualização em detalhes (tabela)"
+                  onClick={() => changeView('details')}
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm" variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+                  className="h-7 px-2" title="Visualização em grade (ícones)"
+                  onClick={() => changeView('grid')}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
       {/* Busca + filtros */}
       <Card className="p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_200px_240px_auto] gap-3">
@@ -944,7 +1280,69 @@ const ErpDocuments: React.FC = () => {
 
       {/* Lista */}
       <Card className="p-0 overflow-hidden">
-        {loading && items.length === 0 ? (
+        {viewMode === 'grid' ? (
+          items.length === 0 ? (
+            <div className="p-16 text-center text-muted-foreground">
+              {loading
+                ? <RefreshCw className="h-8 w-8 mx-auto mb-3 animate-spin opacity-50" />
+                : <FileQuestion className="h-10 w-10 mx-auto mb-3 opacity-40" />}
+              <p className="mt-1">
+                {loading
+                  ? 'Carregando documentos…'
+                  : hasFilters
+                    ? 'Nenhum documento encontrado com esses filtros.'
+                    : 'Nenhum documento nesta pasta. Clique em “Novo Documento” ou arraste arquivos/pastas aqui.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 p-4">
+              {items.map((d, idx) => {
+                const isSub = (d.arquivosCount || 0) > 1;
+                const kind = getPreviewKind(d.arquivoNome, d.arquivoTipo);
+                const isSel = selectedIds.has(d.id);
+                const thumb = !isSub && kind === 'image' && d.arquivoUrl
+                  ? toAbsoluteUrl(d.arquivoUrl)
+                  : null;
+                return (
+                  <div
+                    key={d.id}
+                    draggable
+                    onDragStart={(e) => handleDocDragStart(e, d)}
+                    onClick={(e) => handleRowClick(d, e, idx)}
+                    onDoubleClick={() => handleOpen(d)}
+                    onContextMenu={(e) => openContextMenu(e, isSel && selectedIds.size > 1 ? Array.from(selectedIds) : [d.id])}
+                    className={`group relative flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center cursor-pointer transition-colors
+                      ${isSel
+                        ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-300'
+                        : 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50'}`}
+                    title={`${d.nome}${d.tipo ? ` · ${d.tipo}` : ''} — duplo clique para abrir`}
+                  >
+                    <div className="h-16 w-16 flex items-center justify-center overflow-hidden rounded-lg bg-slate-50">
+                      {thumb ? (
+                        <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      ) : isSub ? (
+                        <FolderArchive className="h-9 w-9 text-indigo-500" />
+                      ) : (
+                        <span className="[&>svg]:h-9 [&>svg]:w-9 flex items-center justify-center">{subFileIcon(kind)}</span>
+                      )}
+                    </div>
+                    <p className="text-xs font-medium truncate w-full" title={d.nome}>{d.nome}</p>
+                    <p className="text-[10px] text-muted-foreground">{fmtDate(d.createdAt)}</p>
+                    {isSub && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                        {d.arquivosCount} arquivos
+                      </Badge>
+                    )}
+                    {d.arquivoUrl && (SPREADSHEET_EXTS.includes(fileExtension(d.arquivoNome)) || OFFICE_DOC_EXTS.includes(fileExtension(d.arquivoNome))) && (
+                      <span className="absolute top-1.5 right-1.5 rounded bg-emerald-50 px-1 text-[9px] font-semibold text-emerald-700 border border-emerald-200 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Editável no sistema (Excel/Office)">EDITAR</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
+        ) : loading && items.length === 0 ? (
           <div className="p-16 text-center text-muted-foreground">
             <RefreshCw className="h-8 w-8 mx-auto mb-3 animate-spin opacity-50" />
             Carregando documentos…
@@ -960,17 +1358,25 @@ const ErpDocuments: React.FC = () => {
           <table className="w-full text-sm table-fixed">
             <thead className="bg-slate-50 text-slate-700">
               <tr>
-                <th className="text-left px-3 py-3 font-medium w-[22%]">Documento</th>
-                <th className="text-left px-3 py-3 font-medium w-[10%]">Tipo</th>
+                <th className="text-left px-3 py-3 font-medium w-[22%] cursor-pointer select-none hover:text-indigo-600" onClick={() => toggleSort('nome')} title="Ordenar por nome">
+                  Documento{sortIcon('nome')}
+                </th>
+                <th className="text-left px-3 py-3 font-medium w-[10%] cursor-pointer select-none hover:text-indigo-600" onClick={() => toggleSort('tipo')} title="Ordenar por tipo">
+                  Tipo{sortIcon('tipo')}
+                </th>
                 <th className="text-left px-3 py-3 font-medium w-[10%] hidden lg:table-cell">Numeração</th>
-                <th className="text-left px-3 py-3 font-medium w-[14%] hidden md:table-cell">Empresa Emissora</th>
+                <th className="text-left px-3 py-3 font-medium w-[14%] hidden md:table-cell cursor-pointer select-none hover:text-indigo-600" onClick={() => toggleSort('empresa')} title="Ordenar por empresa">
+                  Empresa Emissora{sortIcon('empresa')}
+                </th>
                 <th className="text-left px-3 py-3 font-medium w-[16%]">Arquivo</th>
-                <th className="text-left px-3 py-3 font-medium w-[10%] hidden sm:table-cell">Data</th>
+                <th className="text-left px-3 py-3 font-medium w-[10%] hidden sm:table-cell cursor-pointer select-none hover:text-indigo-600" onClick={() => toggleSort('data')} title="Ordenar por data">
+                  Data{sortIcon('data')}
+                </th>
                 <th className="text-right px-3 py-3 font-medium w-[18%]">Ações</th>
               </tr>
             </thead>
               <tbody>
-                {items.map((d) => {
+                {items.map((d, idx) => {
                   const ext = fileExtension(d.arquivoNome);
                   const canEditFile = !!d.arquivoUrl && (SPREADSHEET_EXTS.includes(ext) || OFFICE_DOC_EXTS.includes(ext));
                   const isExpanded = expandedIds.has(d.id);
@@ -986,9 +1392,15 @@ const ErpDocuments: React.FC = () => {
                   return (
                     <React.Fragment key={d.id}>
                     <tr
-                      className={`border-t border-slate-100 ${isSub ? 'cursor-pointer' : ''} ${isExpanded ? 'bg-indigo-50/40' : 'hover:bg-slate-50/60'}`}
-                      onClick={isSub ? () => toggleExpand(d) : undefined}
-                      title={isSub ? (isExpanded ? 'Clique para recolher a sub-pasta' : 'Clique para ver os arquivos da sub-pasta') : undefined}
+                      className={`border-t border-slate-100 cursor-pointer ${selectedIds.has(d.id) ? 'bg-indigo-100/70 ring-1 ring-inset ring-indigo-300' : isExpanded ? 'bg-indigo-50/40' : 'hover:bg-slate-50/60'}`}
+                      onClick={(e) => handleRowClick(d, e, idx)}
+                      onDoubleClick={() => handleOpen(d)}
+                      onContextMenu={(e) => openContextMenu(e, selectedIds.has(d.id) && selectedIds.size > 1 ? Array.from(selectedIds) : [d.id])}
+                      draggable
+                      onDragStart={(e) => handleDocDragStart(e, d)}
+                      title={isSub
+                        ? 'Duplo clique para abrir a sub-pasta · arraste para mover'
+                        : 'Duplo clique para abrir · arraste para mover'}
                     >
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-2 min-w-0">
@@ -1036,7 +1448,7 @@ const ErpDocuments: React.FC = () => {
                       </td>
                       <td className="px-3 py-3 text-muted-foreground hidden sm:table-cell text-xs whitespace-nowrap">{fmtDate(d.createdAt)}</td>
                       <td className="px-3 py-3">
-                        <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                           {!isSub && (
                             <Button variant="ghost" size="icon" className="h-7 w-7" title="Visualizar" disabled={!d.arquivoUrl}
                               onClick={() => setPreviewDoc(d)}>
@@ -1219,12 +1631,136 @@ const ErpDocuments: React.FC = () => {
           />
         </div>
       </Card>
+        </div>{/* fecha coluna de conteúdo */}
+      </div>{/* fecha grid sidebar + conteúdo */}
+
+      {/* Menu de contexto (botão direito) */}
+      {ctxMenu && ctxDoc && (
+        <div
+          className="fixed z-[70] min-w-[210px] rounded-md border bg-white py-1 text-sm shadow-xl"
+          style={{
+            top: Math.min(ctxMenu.y, window.innerHeight - 300),
+            left: Math.min(ctxMenu.x, window.innerWidth - 230),
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+          role="menu"
+        >
+          <div className="px-3 py-1.5 border-b mb-1">
+            <p className="font-medium truncate" title={ctxDoc.nome}>{ctxDoc.nome}</p>
+            <p className="text-xs text-muted-foreground">
+              {ctxMenu.docIds.length > 1 ? `${ctxMenu.docIds.length} itens selecionados` : previewKindLabels[getPreviewKind(ctxDoc.arquivoNome, ctxDoc.arquivoTipo)]}
+            </p>
+          </div>
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
+            onClick={() => { setCtxMenu(null); handleOpen(ctxDoc); }}
+          >
+            <Eye className="h-4 w-4 text-slate-500" /> Abrir
+          </button>
+          {ctxDoc.arquivoUrl && (SPREADSHEET_EXTS.includes(fileExtension(ctxDoc.arquivoNome)) || OFFICE_DOC_EXTS.includes(fileExtension(ctxDoc.arquivoNome))) && (
+            <button
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
+              onClick={() => { setCtxMenu(null); handleEditFile(ctxDoc); }}
+            >
+              <FileEdit className="h-4 w-4 text-emerald-600" />
+              {SPREADSHEET_EXTS.includes(fileExtension(ctxDoc.arquivoNome)) ? 'Editar planilha' : 'Editar documento'}
+            </button>
+          )}
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 disabled:opacity-40"
+            disabled={!ctxDoc.arquivoUrl}
+            onClick={() => { setCtxMenu(null); handleDownload(ctxDoc); }}
+          >
+            <Download className="h-4 w-4 text-slate-500" /> Baixar
+          </button>
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
+            onClick={() => { setCtxMenu(null); openEdit(ctxDoc); }}
+          >
+            <Pencil className="h-4 w-4 text-slate-500" /> Renomear / editar
+          </button>
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
+            onClick={() => { setCtxMenu(null); setMoveDlgIds(ctxMenu.docIds); }}
+          >
+            <FolderInput className="h-4 w-4 text-indigo-500" /> Mover para…
+          </button>
+          <div className="my-1 border-t" />
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+            onClick={() => { const ids = ctxMenu.docIds; setCtxMenu(null); handleDeleteMany(ids); }}
+          >
+            <Trash2 className="h-4 w-4" />
+            {ctxMenu.docIds.length > 1 ? `Excluir ${ctxMenu.docIds.length} documentos` : 'Excluir'}
+          </button>
+        </div>
+      )}
+
+      {/* Dialog Mover para… */}
+      <Dialog open={!!moveDlgIds} onOpenChange={(o) => { if (!o) setMoveDlgIds(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Mover {moveDlgIds && moveDlgIds.length > 1 ? `${moveDlgIds.length} documentos` : 'documento'} para…
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[50vh] overflow-y-auto -mx-1 space-y-0.5 py-1">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-slate-100"
+              onClick={() => moveDlgIds && moveDocs(moveDlgIds, null)}
+              disabled={moveSaving}
+            >
+              <FolderOpen className="h-4 w-4 text-indigo-600 flex-shrink-0" />
+              <span className="font-medium">Documentos (raiz)</span>
+            </button>
+            {flatFolders.length === 0 && (
+              <p className="px-2.5 py-3 text-xs text-muted-foreground leading-relaxed">
+                Nenhuma pasta criada ainda. Use <b>Nova pasta</b> na sidebar para criar a primeira.
+              </p>
+            )}
+            {flatFolders.map(({ f, depth }) => (
+              <button
+                key={f.id}
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm hover:bg-slate-100 disabled:opacity-40"
+                style={{ paddingLeft: 10 + depth * 16 }}
+                disabled={moveSaving}
+                onClick={() => moveDlgIds && moveDocs(moveDlgIds, f.id)}
+                title={f.nome}
+              >
+                <Folder className="h-4 w-4 text-indigo-500 flex-shrink-0" />
+                <span className="truncate">{f.nome}</span>
+                {f.documentosCount != null && f.documentosCount > 0 && (
+                  <span className="ml-auto text-[10px] text-muted-foreground tabular-nums flex-shrink-0">{f.documentosCount}</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setMoveDlgIds(null)} disabled={moveSaving}>Cancelar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal Criar/Editar */}
       <Dialog open={modalOpen} onOpenChange={(o) => { setModalOpen(o); if (!o && !saving) { setPendingFiles([]); setFolderOrigin(null); } }}>
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editing ? 'Editar documento' : 'Novo documento'}</DialogTitle>
+            <DialogTitle>
+              {editing ? 'Editar documento' : 'Novo documento'}
+              {!editing && (
+                <span className="block text-xs font-normal text-muted-foreground mt-0.5">
+                  Será salvo em:{' '}
+                  <b>
+                    {folderPath.length
+                      ? folderPath.map((f) => f.nome).join(' / ')
+                      : 'Documentos (raiz)'}
+                  </b>
+                </span>
+              )}
+            </DialogTitle>
           </DialogHeader>
 
           {folderOrigin && !editing && (
