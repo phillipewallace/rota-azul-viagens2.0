@@ -531,6 +531,56 @@ CREATE TABLE IF NOT EXISTS public.erp_contract_templates (
 
 
 
+-- ============================== ERP DOCUMENTS & FOLDERS =====================
+-- Explorer de Documentos e árvore de pastas hierárquicas.
+CREATE TABLE IF NOT EXISTS public.erp_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome TEXT NOT NULL,
+  tipo TEXT,
+  numeracao TEXT,
+  empresa_emissora TEXT,
+  arquivo_url TEXT,
+  arquivo_nome TEXT,
+  arquivo_tamanho BIGINT,
+  arquivo_tipo TEXT,
+  observacoes TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS erp_documents_nome_idx ON public.erp_documents (LOWER(nome));
+CREATE INDEX IF NOT EXISTS erp_documents_empresa_idx ON public.erp_documents (LOWER(empresa_emissora));
+CREATE INDEX IF NOT EXISTS erp_documents_tipo_idx ON public.erp_documents (LOWER(tipo));
+CREATE INDEX IF NOT EXISTS erp_documents_created_idx ON public.erp_documents (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.erp_folders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome TEXT NOT NULL,
+  parent_id UUID REFERENCES public.erp_folders(id) ON DELETE CASCADE,
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS erp_folders_parent_idx ON public.erp_folders (parent_id);
+CREATE INDEX IF NOT EXISTS erp_folders_nome_idx ON public.erp_folders (LOWER(nome));
+
+ALTER TABLE public.erp_documents
+  ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES public.erp_folders(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS erp_documents_folder_idx ON public.erp_documents (folder_id);
+
+CREATE TABLE IF NOT EXISTS public.erp_document_files (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id UUID NOT NULL REFERENCES public.erp_documents(id) ON DELETE CASCADE,
+  arquivo_url TEXT NOT NULL,
+  arquivo_nome TEXT NOT NULL,
+  arquivo_tamanho BIGINT,
+  arquivo_tipo TEXT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS erp_document_files_document_idx ON public.erp_document_files (document_id);
+
+
 -- ============================== OWNERSHIP / GRANTS ==========================
 -- Garante que o usuário 'lipe' tenha permissão em tudo, mesmo que as tabelas
 -- tenham sido criadas por outro owner (postgres). Sem isso, ALTER/SELECT podem

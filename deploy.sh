@@ -95,8 +95,10 @@ for mig in $(ls "${PROJECT_DIR}/database/"migration-*.sql 2>/dev/null | sort); d
     continue
   fi
   log "  → $base"
-  sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=1 -f "$mig" >/dev/null \
-    || warn "Falha em $base (não interrompendo deploy — verificar manualmente)"
+  if ! mig_out="$(sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=1 -f "$mig" 2>&1)"; then
+    warn "Falha em $base (não interrompendo deploy — verificar manualmente). Últimas linhas do erro:"
+    printf '%s\n' "$mig_out" | tail -6 | sed 's/^/        /'
+  fi
 done
 shopt -u nullglob
 
@@ -124,10 +126,11 @@ sudo -u postgres psql -d "${DB_NAME}" -c "GRANT ALL ON ALL SEQUENCES IN SCHEMA p
 sudo -u postgres psql -d "${DB_NAME}" -c "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${DB_USER};" >/dev/null 2>&1 || true
 ok "Schema + migrations aplicados (dados preservados)"
 
-# ─── 4.2) Tabelas ERP criadas via código (setupDatabase) — garantia via DDL ─
-# O backend chama setupDatabase() na inicialização, mas como redundância
-# defensiva (e para evitar erro caso o setup falhe), aplicamos o DDL aqui.
-log "Garantindo tabelas ERP (erp_documents, erp_companies, erp_sanitario_fotos, erp_sanitario_movimentacoes)…"
+# ─── 4.2) Estruturas ERP essenciais — garantia via DDL (roda em TODO deploy) ─
+# O backend NÃO executa setupDatabase() na inicialização (pm2 roda dist/index.js),
+# então este heredoc é a garantia real de que as tabelas/colunas existem.
+# Idempotente: cria apenas o que falta, nunca altera dados existentes.
+log "Garantindo tabelas ERP (erp_documents, erp_folders, erp_companies, erp_sanitario_fotos, erp_sanitario_movimentacoes)…"
 sudo -u postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=0 <<'SQL' >/dev/null
 CREATE TABLE IF NOT EXISTS public.erp_documents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -202,8 +205,31 @@ GRANT ALL ON public.erp_documents TO public;
 GRANT ALL ON public.erp_companies TO public;
 GRANT ALL ON public.erp_sanitario_fotos TO public;
 GRANT ALL ON public.erp_sanitario_movimentacoes TO public;
+
+-- Explorer de Documentos: pastas hierárquicas (redundância da migration-erp-folders.sql)
+CREATE TABLE IF NOT EXISTS public.erp_folders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome TEXT NOT NULL,
+  parent_id UUID REFERENCES public.erp_folders(id) ON DELETE CASCADE,
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS erp_folders_parent_idx ON public.erp_folders (parent_id);
+CREATE INDEX IF NOT EXISTS erp_folders_nome_idx ON public.erp_folders (LOWER(nome));
+ALTER TABLE public.erp_documents ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES public.erp_folders(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS erp_documents_folder_idx ON public.erp_documents (folder_id);
+GRANT ALL ON public.erp_folders TO public;
 SQL
 ok "Tabelas ERP garantidas"
+
+# Verificação dura: sem essas estruturas o Explorer de Documentos responde 500.
+sudo -u postgres psql -d "${DB_NAME}" -tAc \
+  "SELECT to_regclass('public.erp_folders') IS NOT NULL" | grep -qx t \
+  || err "erp_folders não existe no banco — Explorer de Documentos ficaria com erro 500"
+sudo -u postgres psql -d "${DB_NAME}" -tAc \
+  "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='erp_documents' AND column_name='folder_id')" | grep -qx t \
+  || err "Coluna erp_documents.folder_id ausente — Explorer de Documentos ficaria com erro 500"
 
 # ─── 5) Backend: deps + build ───────────────────────────────────────────────
 log "Backend: instalando deps + compilando TS…"
