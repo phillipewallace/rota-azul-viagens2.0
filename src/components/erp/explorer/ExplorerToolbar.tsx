@@ -4,8 +4,8 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  ArrowDownAZ, ArrowUpAZ, ChevronDown, FilePlus2, FolderPlus,
-  Loader2, RefreshCw, Trash2, UploadCloud,
+  ArrowDownAZ, ArrowUpAZ, CheckSquare, ChevronDown, FilePlus2, FolderPlus,
+  Loader2, RefreshCw, Square, Trash2, UploadCloud, X,
 } from 'lucide-react';
 
 import type { SortKey } from './types';
@@ -22,6 +22,13 @@ interface Props {
   selectedCount: number;
   onMoveSelected: () => void;
   onDeleteSelected: () => void;
+  /** Modo Seleção: mostra as caixas de marcar e o clique alterna sem abrir. */
+  selectionMode: boolean;
+  onToggleSelectionMode: () => void;
+  /** Itens visíveis — usados pelo "selecionar tudo" e pelo contador. */
+  totalVisible: number;
+  onSelectAll: () => void;
+  onClearSelection: () => void;
   /** Ordenação e visualização. */
   sortKey: SortKey;
   sortDir: 'asc' | 'desc';
@@ -40,6 +47,7 @@ const SORT_OPTIONS: Array<{ key: SortKey; label: string }> = [
 const ExplorerToolbar: React.FC<Props> = ({
   onNewDoc, onNewFolder, onImportFiles, onImportFolder, onRefresh,
   selectedCount, onMoveSelected, onDeleteSelected,
+  selectionMode, onToggleSelectionMode, totalVisible, onSelectAll, onClearSelection,
   sortKey, sortDir, onSort, loading,
 }) => (
   <div className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-white px-2 py-1.5">
@@ -66,23 +74,48 @@ const ExplorerToolbar: React.FC<Props> = ({
       </DropdownMenuContent>
     </DropdownMenu>
 
+    <Button
+      size="sm"
+      variant={selectionMode ? 'default' : 'ghost'}
+      className="h-8"
+      onClick={onToggleSelectionMode}
+      title={selectionMode ? 'Sair do modo seleção' : 'Selecionar vários documentos'}
+    >
+      {selectionMode ? <X className="h-4 w-4 mr-1.5" /> : <CheckSquare className="h-4 w-4 mr-1.5" />}
+      Selecionar
+    </Button>
+
     <Button size="sm" variant="ghost" className="h-8" onClick={onRefresh} title="Atualizar (F5)">
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
     </Button>
 
-    {selectedCount > 0 && (
+    {/* No modo Seleção a barra de ações fica sempre visível (estilo Explorer). */}
+    {(selectionMode || selectedCount > 0) && (
       <>
         <div className="h-5 w-px bg-slate-200 mx-0.5" />
-        <span className="text-xs text-slate-600 tabular-nums px-1">
+        <span className="text-xs text-slate-600 tabular-nums px-1 whitespace-nowrap">
           {selectedCount} selecionado{selectedCount === 1 ? '' : 's'}
         </span>
-        <Button size="sm" variant="ghost" className="h-8" onClick={onMoveSelected} title="Mover para…">
+        {selectionMode && selectedCount > 0 && totalVisible > 0 && (
+          <Button size="sm" variant="ghost" className="h-8" onClick={onSelectAll} title="Selecionar todos os itens">
+            <Square className="h-3.5 w-3.5 mr-1" /> Todos
+          </Button>
+        )}
+        {selectionMode && selectedCount > 0 && (
+          <Button size="sm" variant="ghost" className="h-8" onClick={onClearSelection} title="Limpar seleção">
+            <X className="h-3.5 w-3.5 mr-1" /> Limpar
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" className="h-8" onClick={onMoveSelected}
+          disabled={selectedCount === 0} title="Mover selecionados para…">
           <FolderPlus className="h-4 w-4 mr-1.5 text-indigo-500" /> Mover para…
         </Button>
         <Button
           size="sm" variant="ghost"
           className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50"
           onClick={onDeleteSelected}
+          disabled={selectedCount === 0}
+          title="Excluir selecionados"
         >
           <Trash2 className="h-4 w-4 mr-1.5" /> Excluir
         </Button>

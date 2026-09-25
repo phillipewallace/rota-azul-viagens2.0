@@ -236,27 +236,97 @@ const ErpDocumentEditor: React.FC = () => {
       const table = trimmed.map((r) => r.slice(0, lastCol + 1));
 
       const sheetName = ws.getSheetName?.() ?? ws.getName?.() ?? 'Planilha';
-      const pdf = new jsPDF({
-        orientation: (table[0]?.length ?? 0) > 6 ? 'landscape' : 'portrait',
-        unit: 'pt',
+      const colCount = table[0]?.length ?? 0;
+
+      // Landscape quando há muitas colunas; A4 para não estourar a escala.
+      const pdf = new jsPDF({ orientation: colCount > 6 ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const M = { left: 24, right: 24, top: 64, bottom: 44 };
+      const usableW = pageW - M.left - M.right;
+
+      // Largura por coluna proporcional ao conteúdo: sem isso o autoTable
+      // divide a largura em partes iguais e as colunas com texto longo
+      // estouram, empurrando linhas para fora da página.
+      const MIN_COL = 46;
+      const weights = Array.from({ length: colCount }, (_, c) => {
+        let max = 6;
+        for (const r of table) max = Math.max(max, (r[c] || '').length);
+        // Comprime a razão para que uma célula gigante não dominie a página.
+        return Math.min(max, 46);
       });
+      const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
+      let colWidths = weights.map((w) => (usableW * w) / weightSum);
+      // Respeita a largura mínima e redistribui a sobra proporcionalmente.
+      const deficit = colWidths.reduce((a, w) => a + Math.max(0, MIN_COL - w), 0);
+      if (deficit > 0) {
+        const shrink = weights.map((w, i) => w - (Math.max(0, MIN_COL - colWidths[i]) / weightSum));
+        const sSum = shrink.reduce((a, b) => a + b, 0) || 1;
+        colWidths = shrink.map((w) => Math.max(MIN_COL, (usableW * w) / sSum));
+      }
+
       const [head, ...body] = table;
       autoTable(pdf, {
         head: head ? [head] : [],
         body: body ?? [],
-        startY: 60,
-        styles: { fontSize: 7, cellPadding: 2 },
-        headStyles: { fillColor: [30, 58, 138] },
-        margin: { left: 24, right: 24, top: 40 },
-        didDrawPage: () => {
-          pdf.setFontSize(11);
-          pdf.text(`${doc?.nome ?? 'Planilha'} — ${sheetName}`, 24, 34);
-          pdf.setFontSize(8);
-          pdf.setTextColor(120);
-          pdf.text(new Date().toLocaleString('pt-BR'), 24, 46);
+        startY: M.top,
+        // showHead repete o cabeçalho da tabela em cada página — essencial
+        // quando a planilha tem mais de uma página.
+        showHead: 'everyPage',
+        // Impede que uma linha seja partida entre duas páginas.
+        rowPageBreak: 'avoid',
+        styles: {
+          fontSize: 7,
+          cellPadding: 2,
+          // 'linebreak' quebra o texto longo dentro da célula em vez de
+          // deixar vazar sobre a borda.
+          overflow: 'linebreak',
+          minCellHeight: 12,
+        },
+        headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold', minCellHeight: 16 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        tableWidth: 'auto',
+        columnStyles: Object.fromEntries(
+          Array.from({ length: colCount }, (_, c) => [c, { cellWidth: colWidths[c] }]),
+        ),
+        margin: M,
+        // O cabeçalho do PDF é desenhado em TODAS as páginas, dentro da faixa
+        // reservada por M.top — por isso o top precisa ser > 46.
+        didDrawPage: (d) => {
+          const page = d.pageNumber;
+          const ctx = pdf as any;
+          ctx.setFontSize(11);
+          ctx.setTextColor(15, 23, 42);
+          ctx.text(`${doc?.nome ?? 'Planilha'} — ${sheetName}`, M.left, 30);
+          ctx.setFontSize(8);
+          ctx.setTextColor(120);
+          ctx.text(new Date().toLocaleString('pt-BR'), M.left, 42);
+
+          // Rodapé: linha + "Página X" (o "de N" entra no pós-processamento).
+          ctx.setDrawColor(226, 232, 240);
+          ctx.line(M.left, pageH - 30, pageW - M.right, pageH - 30);
+          ctx.setFontSize(8);
+          ctx.setTextColor(120);
+          ctx.text(`Página ${page}`, pageW - M.right, pageH - 18, { align: 'right' });
+          ctx.text(`${doc?.nome ?? ''}`.slice(0, 80), M.left, pageH - 18);
         },
       });
-      console.log('[EditorPlanilha] 📄 Gerando PDF:', { aba: sheetName, linhas: table.length, colunas: table[0]?.length });
+
+      // Redesenha a numeração como "Página X de Y" — o total só é conhecido
+      // depois que o autoTable termina de paginar.
+      const total = (pdf as any).getNumberOfPages?.() ?? 1;
+      if (total > 1) {
+        for (let p = 1; p <= total; p++) {
+          pdf.setPage(p);
+          const ctx = pdf as any;
+          ctx.setFontSize(8);
+          ctx.setTextColor(120);
+          ctx.text(`Página ${p} de ${total}`, pageW - M.right, pageH - 18, { align: 'right' });
+        }
+        pdf.setPage(1);
+      }
+
+      console.log('[EditorPlanilha] 📄 Gerando PDF:', { aba: sheetName, linhas: table.length, colunas: colCount, paginas: total });
       pdf.save(
         `${(doc?.nome ?? 'planilha').replace(/[^\w\-]+/g, '_')}-${sheetName.replace(/[^\w\-]+/g, '_')}.pdf`,
       );

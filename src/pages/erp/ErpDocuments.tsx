@@ -251,6 +251,8 @@ const ErpDocuments: React.FC = () => {
   const [sortKey, setSortKey] = useState<string>('data');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  /** Modo Seleção: o clique marca/desmarca em vez de abrir o item. */
+  const [selectionMode, setSelectionMode] = useState(false);
   /** Menu de contexto: posição + alvo (documentos, pasta, área vazia). */
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; target: CtxTarget } | null>(null);
   /** Histórico de navegação estilo Explorer (voltar/avançar). */
@@ -1060,6 +1062,17 @@ const ErpDocuments: React.FC = () => {
 
     const plain = !e.ctrlKey && !e.metaKey && !e.shiftKey;
 
+    // Modo Seleção: o clique simples marca/desmarca em vez de abrir (pastas também).
+    if (selectionMode && plain) {
+      setSelectedIds((prev) => {
+        const n = new Set(prev);
+        if (n.has(entry.id)) n.delete(entry.id);
+        else n.add(entry.id);
+        return n;
+      });
+      return;
+    }
+
     // Pasta: clique simples entra. Modificadores continuam sendo para seleção.
     if (entry.kind === 'folder' && plain) {
       selectFolder(entry.folder.id);
@@ -1494,6 +1507,16 @@ const ErpDocuments: React.FC = () => {
             selectedCount={selectedIds.size}
             onMoveSelected={() => setMoveDlgIds(docIdsOfSelection())}
             onDeleteSelected={() => deleteSelection()}
+            selectionMode={selectionMode}
+            onToggleSelectionMode={() => {
+              setSelectionMode((v) => {
+                if (v) setSelectedIds(new Set());
+                return !v;
+              });
+            }}
+            totalVisible={entries.length}
+            onSelectAll={() => setSelectedIds(new Set(entries.map((e) => e.id)))}
+            onClearSelection={() => setSelectedIds(new Set())}
             sortKey={sortKey as SortKey}
             sortDir={sortDir}
             onSort={(k, d) => { setSortKey(k); setSortDir(d); }}

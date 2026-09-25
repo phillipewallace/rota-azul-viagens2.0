@@ -87,13 +87,24 @@ const FolderTree: React.FC<Props> = ({ folders, current, onSelect, onChanged, on
       node = node.parentId ? byId.get(node.parentId) : undefined;
     }
     if (!chain.length) return;
+    // Só os ANCESTRAIS entram no auto-aberto. A própria pasta atual não é
+    // forçada, para o usuário poder recolhê-la pela setinha sem que o
+    // efeito reabra na próxima atualização da lista.
     setExpanded((prev) => {
       const next = new Set(prev);
       let changed = false;
-      chain.forEach((id) => { if (!next.has(id)) { next.add(id); changed = true; } });
+      chain.slice(1).forEach((id) => { if (!next.has(id)) { next.add(id); changed = true; } });
       return changed ? next : prev;
     });
   }, [current, folders]);
+
+  /** Garante a pasta aberta (usado ao clicar no nome dela). */
+  const expandOnly = (id: string) => setExpanded((p) => {
+    if (p.has(id)) return p;
+    const n = new Set(p);
+    n.add(id);
+    return n;
+  });
 
   const submitName = async () => {
     if (!nameDlg) return;
@@ -177,7 +188,8 @@ const FolderTree: React.FC<Props> = ({ folders, current, onSelect, onChanged, on
 
   const renderNode = (folder: ErpFolder, depth: number): React.ReactNode => {
     const kids = childrenOf.get(folder.id) || [];
-    const isOpen = expanded.has(folder.id) || folder.id === current;
+    // Só o estado `expanded` decide: a setinha fecha mesmo com a pasta ativa.
+    const isOpen = expanded.has(folder.id);
     const isActive = current === folder.id;
     return (
       <div key={folder.id}>
@@ -186,17 +198,19 @@ const FolderTree: React.FC<Props> = ({ folders, current, onSelect, onChanged, on
             ${isActive ? 'bg-indigo-100 text-indigo-900 font-medium' : 'hover:bg-slate-100'}
             ${toggleStyle(folder.id)}`}
           style={{ paddingLeft: 6 + depth * 14 }}
-          onClick={() => onSelect(folder.id)}
+          onClick={() => { onSelect(folder.id); expandOnly(folder.id); }}
           onDragOver={nodeDragOver(folder.id)}
           onDragLeave={nodeDragLeave(folder.id)}
           onDrop={nodeDrop(folder.id)}
-          title={`Abrir "${folder.nome}" — ou arraste documentos aqui para movê-los`}
+          title={`Abrir "${folder.nome}" e mostrar as subpastas — ou arraste documentos aqui para movê-los`}
         >
           <button
             type="button"
             className="p-0.5 rounded hover:bg-white/70 flex-shrink-0"
-            onClick={(e) => { e.stopPropagation(); toggle(folder.id); }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(folder.id); }}
+            title={isOpen ? 'Recolher subpastas' : 'Expandir subpastas'}
             aria-label={isOpen ? 'Recolher' : 'Expandir'}
+            aria-expanded={isOpen}
           >
             {kids.length > 0 ? (
               isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />
