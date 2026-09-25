@@ -31,8 +31,12 @@ const str = (v: any, max = 200): string | null => {
 async function siblingConflict(nome: string, parentId: string | null, exceptId?: string): Promise<boolean> {
   const params: any[] = [nome.toLowerCase()];
   let sql = `SELECT 1 FROM erp_folders WHERE LOWER(nome) = $1 AND `;
-  sql += parentId ? 'parent_id = $2' : 'parent_id IS NULL';
-  params.push(parentId);
+  if (parentId) {
+    params.push(parentId);
+    sql += `parent_id = $${params.length}`;
+  } else {
+    sql += `parent_id IS NULL`;
+  }
   if (exceptId) {
     params.push(exceptId);
     sql += ` AND id <> $${params.length}`;
