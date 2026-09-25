@@ -47,10 +47,10 @@ async function uploadDocumentFile(file: File): Promise<{ url: string; size: numb
 }
 
 /** Largura/altura padrão das células (em px) quando o auto-fit não se aplica. */
-const DEFAULT_COL_WIDTH = 88;
+const DEFAULT_COL_WIDTH = 100;
 const DEFAULT_ROW_HEIGHT = 24;
-const MIN_COL_WIDTH = 60;
-const MAX_COL_WIDTH = 320;
+const MIN_COL_WIDTH = 88;
+const MAX_COL_WIDTH = 420;
 /** Largura média de um caractere na fonte padrão do Univer (~11px). */
 const CHAR_PX = 6.6;
 
@@ -72,7 +72,7 @@ function autoFitColumns(fwb: any): void {
 
     const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(''));
     try {
-      const range = ws.getRange(0, 0, rows, cols);
+      const range = ws.getRange(0, 0, rows - 1, cols - 1);
       const values = (range?.getValues?.() ?? []) as unknown[][];
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
@@ -95,10 +95,16 @@ function autoFitColumns(fwb: any): void {
         if (len > longest) longest = len;
       }
       const width = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, Math.ceil(longest * CHAR_PX) + 14));
-      ws.setColumnWidth?.(c, c, width);
+      // ⚠️ O facade do Univer usa 2 argumentos: setColumnWidth(coluna, largura).
+      // Com 3 (inicio, fim, valor) a largura vira o próprio índice da coluna —
+      // foi o que deixou a planilha inteira colada.
+      ws.setColumnWidth?.(c, width);
     }
-    // Altura comfortavel para o texto nao ficar cortado verticalmente.
-    for (let r = 0; r < rows; r++) ws.setRowHeight?.(r, r, DEFAULT_ROW_HEIGHT);
+    // Altura confortavel para o texto nao ficar cortado verticalmente.
+    for (let r = 0; r < rows; r++) {
+      const temDados = grid[r].some((v) => v !== '');
+      if (temDados) ws.setRowHeight?.(r, DEFAULT_ROW_HEIGHT);
+    }
   }
   // Reforca o padrao para as colunas que ainda nao existem na grade.
   try { fwb.setDefaultColumnWidth?.(DEFAULT_COL_WIDTH); } catch { /* noop */ }
