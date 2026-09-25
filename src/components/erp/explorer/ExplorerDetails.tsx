@@ -34,14 +34,8 @@ interface Props extends ExplorerBaseProps {
   sortKey: string;
   sortDir: 'asc' | 'desc';
   onSort: (key: string) => void;
-  expandedIds: Set<string>;
-  onToggleExpand: (doc: ErpDocument) => void;
-  /** Linha extra da sub-pasta (renderizada pela página — usa todo o estado de arquivos). */
-  renderSubRow?: (doc: ErpDocument) => React.ReactNode;
   /** Botões de ação da linha do documento (reaproveita os da página). */
   renderDocActions?: (doc: ErpDocument) => React.ReactNode;
-  /** Nomes de arquivos da sub-pasta que casaram com a busca geral. */
-  searchMatched?: (doc: ErpDocument) => string[];
 }
 
 const EmptyState: React.FC<{ loading: boolean; hasFilters: boolean }> = ({ loading, hasFilters }) => (
@@ -65,8 +59,8 @@ const ExplorerDetails: React.FC<Props> = ({
   onItemClick, onItemContextMenu, onItemDragStart,
   dropId, onItemDragOver, onItemDragLeave, onItemDrop,
   onFolderNewSub, onFolderRename, onFolderDelete,
-  sortKey, sortDir, onSort, expandedIds, onToggleExpand,
-  renderSubRow, renderDocActions, searchMatched,
+  sortKey, sortDir, onSort,
+  renderDocActions,
 }) => {
   if (!entries.length) return <EmptyState loading={loading} hasFilters={hasFilters} />;
 
@@ -156,90 +150,52 @@ const ExplorerDetails: React.FC<Props> = ({
 
           // ── Documento ────────────────────────────────────────────────────
           const d = entry.doc;
-          const isSub = (d.arquivosCount || 0) > 1;
-          const isExpanded = expandedIds.has(d.id);
-          const matched = searchMatched?.(d) || [];
 
           return (
-            <React.Fragment key={d.id}>
-              <tr
-                data-exp-row
-                className={`border-t border-slate-100 cursor-pointer ${isSel ? 'bg-indigo-100/70 ring-1 ring-inset ring-indigo-300' : isExpanded ? 'bg-indigo-50/40' : 'hover:bg-slate-50/60'}`}
-                onClick={(e) => onItemClick(entry, e, idx)}
-                onContextMenu={(e) => onItemContextMenu(e, entry)}
-                draggable
-                onDragStart={(e) => onItemDragStart(e, entry)}
-                title={isSub
-                  ? 'Clique para abrir a sub-pasta · arraste para mover'
-                  : 'Clique para abrir · arraste para mover'}
-              >
-                <td className="px-3 py-2.5">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {isSub ? (
-                      <button
-                        type="button"
-                        className="p-0.5 rounded hover:bg-slate-200 flex-shrink-0"
-                        title={isExpanded ? 'Recolher sub-pasta' : 'Expandir sub-pasta'}
-                        onClick={(e) => { e.stopPropagation(); onToggleExpand(d); }}
-                      >
-                        {isExpanded
-                          ? <ChevronDown className="h-3.5 w-3.5 text-indigo-500" />
-                          : <ChevronRight className="h-3.5 w-3.5 text-indigo-500" />}
-                      </button>
-                    ) : <span className="w-1 flex-shrink-0" />}
-                    <FileText className={`h-4 w-4 flex-shrink-0 ${isSub ? 'text-indigo-400' : 'text-indigo-500'}`} />
-                    <span className="truncate font-medium" title={d.nome}>{d.nome}</span>
-                    {isSub && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
-                        {d.arquivosCount} arquivos
-                      </Badge>
-                    )}
-                  </div>
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground hidden sm:table-cell whitespace-nowrap">{fmtDate(d.updatedAt || d.createdAt)}</td>
-                <td className="px-3 py-2.5">
-                  {d.tipo
-                    ? <Badge variant="outline" className="max-w-full truncate">{d.tipo}</Badge>
-                    : <span className="text-muted-foreground">—</span>}
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground hidden lg:table-cell">
-                  {d.arquivoTamanho != null
-                    ? formatFileSize(d.arquivoTamanho)
-                    : isSub ? `${d.arquivosCount} arq.` : '—'}
-                </td>
-                <td className="px-3 py-2.5 hidden md:table-cell">
-                  {isSub ? (
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <FolderArchive className="h-4 w-4 text-indigo-500 flex-shrink-0" />
-                        <span className="text-xs font-medium text-indigo-700">Sub-pasta</span>
-                      </div>
-                      {matched.length > 0 && (
-                        <p className="text-[11px] text-indigo-600 truncate mt-0.5" title={matched.join(' · ')}>
-                          {matched.length === 1 ? matched[0] : `${matched[0]} +${matched.length - 1}`}
-                        </p>
-                      )}
-                    </div>
-                  ) : d.arquivoNome ? (
-                    <span className="text-xs truncate block" title={d.arquivoNome}>{d.arquivoNome}</span>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground hidden lg:table-cell">
-                  <span className="truncate block" title={d.numeracao}>{d.numeracao || '—'}</span>
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground hidden xl:table-cell">
-                  <span className="truncate block" title={d.empresaEmissora}>{d.empresaEmissora || '—'}</span>
-                </td>
-                <td className="px-3 py-2.5">
-                  <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                    {renderDocActions?.(d)}
-                  </div>
-                </td>
-              </tr>
-              {isSub && isExpanded && renderSubRow?.(d)}
-            </React.Fragment>
+            <tr
+              key={d.id}
+              data-exp-row
+              className={`border-t border-slate-100 cursor-pointer ${isSel ? 'bg-indigo-100/70 ring-1 ring-inset ring-indigo-300' : 'hover:bg-slate-50/60'}`}
+              onClick={(e) => onItemClick(entry, e, idx)}
+              onContextMenu={(e) => onItemContextMenu(e, entry)}
+              draggable
+              onDragStart={(e) => onItemDragStart(e, entry)}
+              title="Clique para abrir · arraste para mover"
+            >
+              <td className="px-3 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="h-4 w-4 flex-shrink-0 text-indigo-500" />
+                  <span className="truncate font-medium" title={d.nome}>{d.nome}</span>
+                </div>
+              </td>
+              <td className="px-3 py-2.5 text-muted-foreground hidden sm:table-cell whitespace-nowrap">{fmtDate(d.updatedAt || d.createdAt)}</td>
+              <td className="px-3 py-2.5">
+                {d.tipo
+                  ? <Badge variant="outline" className="max-w-full truncate">{d.tipo}</Badge>
+                  : <span className="text-muted-foreground">—</span>}
+              </td>
+              <td className="px-3 py-2.5 text-muted-foreground hidden lg:table-cell">
+                {d.arquivoTamanho != null ? formatFileSize(d.arquivoTamanho) : '—'}
+              </td>
+              <td className="px-3 py-2.5 hidden md:table-cell">
+                {d.arquivoNome ? (
+                  <span className="text-xs truncate block" title={d.arquivoNome}>{d.arquivoNome}</span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2.5 text-muted-foreground hidden lg:table-cell">
+                <span className="truncate block" title={d.numeracao}>{d.numeracao || '—'}</span>
+              </td>
+              <td className="px-3 py-2.5 text-muted-foreground hidden xl:table-cell">
+                <span className="truncate block" title={d.empresaEmissora}>{d.empresaEmissora || '—'}</span>
+              </td>
+              <td className="px-3 py-2.5">
+                <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                  {renderDocActions?.(d)}
+                </div>
+              </td>
+            </tr>
           );
         })}
       </tbody>

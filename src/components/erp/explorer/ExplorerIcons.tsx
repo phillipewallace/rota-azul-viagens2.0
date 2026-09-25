@@ -1,5 +1,4 @@
 ﻿import React from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Folder, FolderArchive, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { getPreviewKind } from '@/utils/documentFiles';
 import { toAbsoluteUrl } from '@/utils/absoluteUrl';
@@ -104,9 +103,8 @@ const ExplorerIcons: React.FC<Props> = ({
         }
 
         const d = entry.doc;
-        const isSub = (d.arquivosCount || 0) > 1;
         const kind = getPreviewKind(d.arquivoNome, d.arquivoTipo);
-        const thumb = !isSub && kind === 'image' && d.arquivoUrl
+        const thumb = kind === 'image' && d.arquivoUrl
           ? toAbsoluteUrl(d.arquivoUrl)
           : null;
         const editable = !!d.arquivoUrl
@@ -130,8 +128,6 @@ const ExplorerIcons: React.FC<Props> = ({
             <div className={`${box.box} flex items-center justify-center overflow-hidden rounded-lg bg-slate-50`}>
               {thumb ? (
                 <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" />
-              ) : isSub ? (
-                <FolderArchive className={`${box.icon} text-indigo-500`} />
               ) : (
                 <span
                   className="flex items-center justify-center text-[10px] font-bold text-slate-400"
@@ -143,11 +139,6 @@ const ExplorerIcons: React.FC<Props> = ({
             </div>
             <p className="text-xs font-medium truncate w-full" title={d.nome}>{d.nome}</p>
             <p className="text-[10px] text-muted-foreground">{fmtDate(d.updatedAt || d.createdAt)}</p>
-            {isSub && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                {d.arquivosCount} arquivos
-              </Badge>
-            )}
             {editable && (
               <span
                 className="absolute top-1.5 right-1.5 rounded bg-emerald-50 px-1 text-[9px] font-semibold text-emerald-700 border border-emerald-200 opacity-0 group-hover:opacity-100 transition-opacity"

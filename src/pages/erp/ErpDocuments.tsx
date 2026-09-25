@@ -1,7 +1,7 @@
-﻿/**
- * ERP Ã¢â€ â€™ Documentos
- * Central de documentos: nome, empresa emissora, numeraÃ§Ã£o, tipo e arquivo
- * vinculado (qualquer tipo/extensÃ£o). PrÃ©-visualizaÃ§Ã£o, download, busca e filtros.
+/**
+ * ERP → Documentos
+ * Central de documentos: nome, empresa emissora, numeração, tipo e arquivo
+ * vinculado (qualquer tipo/extensão). Pré-visualização, download, busca e filtros.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
-import { erpService, type ErpCompany, type ErpDocument, type ErpDocumentFile, type ErpFolder } from '@/services/erp';
+import { erpService, type ErpCompany, type ErpDocument, type ErpFolder } from '@/services/erp';
 import { uploadDocumentFile } from '@/utils/documentUpload';
 import { confirmDialog } from '@/lib/confirm';
 import PaginationBar from '@/components/PaginationBar';
@@ -29,17 +29,16 @@ import ExplorerDetails from '@/components/erp/explorer/ExplorerDetails';
 import ExplorerIcons from '@/components/erp/explorer/ExplorerIcons';
 import FolderNameDialog, { type FolderNameState } from '@/components/erp/explorer/FolderNameDialog';
 import { DOC_DRAG_MIME, ICON_SIZES, VIEW_MODES, type CtxTarget, type ExplorerEntry, type IconSize, type SortKey, type ViewMode } from '@/components/erp/explorer/types';
-import { formatFileSize, getPreviewKind, downloadFileFromUrl, previewKindLabels, type PreviewKind } from '@/utils/documentFiles';
+import { formatFileSize, getPreviewKind, downloadFileFromUrl, previewKindLabels } from '@/utils/documentFiles';
 import { toAbsoluteUrl } from '@/utils/absoluteUrl';
 import { SPREADSHEET_EXTS, OFFICE_DOC_EXTS } from '@/utils/spreadsheetConvert';
 import {
   Plus, Search, RefreshCw, Trash2, Pencil, Eye, Download, FolderOpen, X,
-  FileText, Filter, UploadCloud, FileQuestion, FileEdit, ChevronDown, ChevronRight,
-  FolderArchive, Loader2, FileImage, FileVideo, FileAudio, FileArchive, FileSpreadsheet, FileType, ExternalLink,
-  LayoutGrid, List, ChevronUp, FolderInput, Folder,
+  FileText, Filter, UploadCloud, FileEdit, ChevronDown, FolderArchive, Loader2, List,
+  ChevronUp, FolderInput, Folder,
 } from 'lucide-react';
 
-/** LÃª uma preferÃªncia da view do Explorer, validando contra as opÃ§Ãµes vÃ¡lidas. */
+/** Lê uma preferência da view do Explorer, validando contra as opções válidas. */
 function readPref<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
     const raw = localStorage.getItem(`erp-docs-${key}`);
@@ -49,44 +48,18 @@ function readPref<T extends string>(key: string, allowed: readonly T[], fallback
   }
 }
 
-/** Grava a preferÃªncia da view. Falhas de storage (modo privado) nÃ£o quebram a UI. */
+/** Grava a preferência da view. Falhas de storage (modo privado) não quebram a UI. */
 function writePref(key: string, value: string) {
   try {
     localStorage.setItem(`erp-docs-${key}`, value);
-  } catch { /* preferÃªncia apenas nesta sessÃ£o */ }
+  } catch { /* preferência apenas nesta sessão */ }
 }
 
 const TIPO_SUGGESTIONS = [
-  'Contrato', 'OrÃ§amento', 'Ordem de ServiÃ§o', 'Nota Fiscal', 'Recibo', 'Boleto',
-  'AlvarÃ¡', 'LicenÃ§a', 'Laudo', 'Manual', 'Certificado', 'ProcuraÃ§Ã£o',
+  'Contrato', 'Orçamento', 'Ordem de Serviço', 'Nota Fiscal', 'Recibo', 'Boleto',
+  'Alvará', 'Licença', 'Laudo', 'Manual', 'Certificado', 'Procuração',
   'Contrato Social', 'CNPJ', 'Seguro', 'Outros',
 ];
-
-// Filtro prÃ³prio de cada sub-pasta (por tipo de arquivo).
-const SUB_FILTER_TYPES: Array<{ value: string; label: string }> = [
-  { value: 'all', label: 'Todos os tipos' },
-  { value: 'pdf', label: 'PDF' },
-  { value: 'image', label: 'Imagem' },
-  { value: 'office', label: 'Office / Planilha' },
-  { value: 'text', label: 'Texto' },
-  { value: 'video', label: 'VÃ­deo' },
-  { value: 'audio', label: 'Ãudio' },
-  { value: 'archive', label: 'Compactado' },
-  { value: 'other', label: 'Outros' },
-];
-
-const subFileIcon = (kind: PreviewKind) => {
-  switch (kind) {
-    case 'pdf': return <FileText className="h-5 w-5 text-rose-500 flex-shrink-0" />;
-    case 'image': return <FileImage className="h-5 w-5 text-emerald-500 flex-shrink-0" />;
-    case 'video': return <FileVideo className="h-5 w-5 text-violet-500 flex-shrink-0" />;
-    case 'audio': return <FileAudio className="h-5 w-5 text-sky-500 flex-shrink-0" />;
-    case 'text': return <FileType className="h-5 w-5 text-indigo-500 flex-shrink-0" />;
-    case 'office': return <FileSpreadsheet className="h-5 w-5 text-blue-500 flex-shrink-0" />;
-    case 'archive': return <FileArchive className="h-5 w-5 text-amber-500 flex-shrink-0" />;
-    default: return <FileQuestion className="h-5 w-5 text-slate-400 flex-shrink-0" />;
-  }
-};
 
 interface DocForm {
   nome: string;
@@ -98,9 +71,9 @@ interface DocForm {
 
 const EMPTY_FORM: DocForm = { nome: '', tipo: '', numeracao: '', empresaEmissora: '', observacoes: '' };
 
-const fmtDate = (s?: string) => (s ? new Date(s).toLocaleDateString('pt-BR') : 'Ã¢â‚¬â€');
+const fmtDate = (s?: string) => (s ? new Date(s).toLocaleDateString('pt-BR') : '—');
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Arrastar arquivos e pastas do sistema de arquivos Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// ── Arrastar arquivos e pastas do sistema de arquivos ──────────────────────
 /**
  * Nó da árvore arrastada do sistema de arquivos.
  * `arquivo` preenchido = folha; `arquivo` nulo = pasta (tem `filhos`).
@@ -160,13 +133,12 @@ const countPastas = (node: DroppedNode): number =>
   (isPasta(node) ? 1 : 0) + node.filhos.reduce((s, f) => s + countPastas(f), 0);
 
 /**
- * Conta quantos DOCUMENTOS a subárvore vai gerar: uma pasta só vira documento
- * se tiver arquivos diretamente dentro dela (subpastas geram os seus).
+ * Conta quantos DOCUMENTOS a subárvore vai gerar: um por arquivo, já que cada
+ * arquivo solto vira um documento dentro da pasta em que estava.
  */
 const countDocsNaArvore = (node: DroppedNode): number => {
-  if (!isPasta(node)) return 0;
-  const diretos = node.filhos.filter((f) => !isPasta(f)).length;
-  return (diretos > 0 ? 1 : 0) + node.filhos.reduce((s, f) => s + countDocsNaArvore(f), 0);
+  if (!isPasta(node)) return 1;
+  return node.filhos.reduce((s, f) => s + countDocsNaArvore(f), 0);
 };
 
 /** Total de documentos que as raízes da fila vão gerar (para o diálogo). */
@@ -214,7 +186,7 @@ async function readDroppedEntries(dt: DataTransfer): Promise<{ folders: DroppedN
   return { folders, looseFiles };
 }
 
-/** Detecta se o arraste contÃ©m pasta (null = navegador nÃ£o informa durante o arraste). */
+/** Detecta se o arraste contém pasta (null = navegador não informa durante o arraste). */
 function dragHasFolder(dt?: DataTransfer | null): boolean | null {
   if (!dt || !dt.items || !dt.items.length) return null;
   let viuArquivo = false;
@@ -228,7 +200,7 @@ function dragHasFolder(dt?: DataTransfer | null): boolean | null {
   return viuArquivo ? false : null;
 }
 
-/** NumeraÃ§Ã£o automÃ¡tica do cadastro em lote (o nome do documento vem da pasta). */
+/** Numeração automática do cadastro em lote (o nome do documento vem da pasta). */
 const numeracaoAleatoria = () =>
   `${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 
@@ -265,44 +237,36 @@ const ErpDocuments: React.FC = () => {
   const [previewHideEdit, setPreviewHideEdit] = useState(false);
   const reqRef = useRef(0);
 
-  // Sub-pasta: mÃºltiplos arquivos por documento (estado por doc-id).
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [filesStore, setFilesStore] = useState<Record<string, ErpDocumentFile[]>>({});
-  const [filesLoading, setFilesLoading] = useState<Record<string, boolean>>({});
-  const [fileSearch, setFileSearch] = useState<Record<string, string>>({});
-  const [fileTipoFilter, setFileTipoFilter] = useState<Record<string, string>>({});
-  const [subDragActive, setSubDragActive] = useState<Record<string, boolean>>({});
-  const [subUploading, setSubUploading] = useState<Record<string, boolean>>({});
-
+  // Sub-pasta: múltiplos arquivos por documento (estado por doc-id).
   // Arrastar pasta(s) para a aba Documentos.
   const [pageDrag, setPageDrag] = useState(false);
   const dragDepth = useRef(0);
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Explorer: pastas, navegaÃƒÂ§ÃƒÂ£o, visualizaÃƒÂ§ÃƒÂ£o, seleÃƒÂ§ÃƒÂ£o e ordenaÃƒÂ§ÃƒÂ£o Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Explorer: pastas, navegação, visualização, seleção e ordenação ────────
   const [folders, setFolders] = useState<ErpFolder[]>([]);
-  /** 'root' = documentos sem pasta; senÃ£o o id da pasta aberta. */
+  /** 'root' = documentos sem pasta; senão o id da pasta aberta. */
   const [currentFolder, setCurrentFolder] = useState<string>('root');
   const [viewMode, setViewMode] = useState<ViewMode>(readPref('view', VIEW_MODES, 'details'));
   const [iconSize, setIconSize] = useState<IconSize>(readPref('icons', ICON_SIZES, 'md'));
   const [sortKey, setSortKey] = useState<string>('data');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  /** Menu de contexto: posiÃ§Ã£o + alvo (documentos, pasta, Ã¡rea vazia). */
+  /** Menu de contexto: posição + alvo (documentos, pasta, área vazia). */
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; target: CtxTarget } | null>(null);
-  /** HistÃ³rico de navegaÃ§Ã£o estilo Explorer (voltar/avanÃ§ar). */
+  /** Histórico de navegação estilo Explorer (voltar/avançar). */
   const [navHistory, setNavHistory] = useState<string[]>(['root']);
   const [navIdx, setNavIdx] = useState(0);
-  /** Dialog criar/renomear pasta (toolbar, Ã¡rvore, F2, menu de contexto). */
+  /** Dialog criar/renomear pasta (toolbar, árvore, F2, menu de contexto). */
   const [folderNameDlg, setFolderNameDlg] = useState<FolderNameState | null>(null);
   const [folderNameSaving, setFolderNameSaving] = useState(false);
-  /** Pasta sob o cursor durante arraste de documentos na Ã¡rea de conteÃºdo. */
+  /** Pasta sob o cursor durante arraste de documentos na área de conteúdo. */
   const [contentDropId, setContentDropId] = useState<string | null>(null);
-  /** Dialog "Mover paraÃ¢â‚¬Â¦" Ã¢â‚¬â€ ids dos documentos a mover (null = fechado). */
+  /** Dialog "Mover para…" — ids dos documentos a mover (null = fechado). */
   const [moveDlgIds, setMoveDlgIds] = useState<string[] | null>(null);
   const [moveSaving, setMoveSaving] = useState(false);
   // Nome da pasta que originou o cadastro simples (mostrado como dica no modal).
   const [folderOrigin, setFolderOrigin] = useState<string | null>(null);
-  // Cadastro em lote: 2+ pastas soltas de uma vez Ã¢â€ â€™ pergunta somente o tipo.
+  // Cadastro em lote: 2+ pastas soltas de uma vez → pergunta somente o tipo.
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [folderQueue, setFolderQueue] = useState<DroppedNode[]>([]);
   const [folderTipo, setFolderTipo] = useState('');
@@ -317,9 +281,9 @@ const ErpDocuments: React.FC = () => {
 
   useEffect(() => { setPage(1); }, [tipoFilter, empresaFilter, qDebounced, pageSize, currentFolder, sortKey, sortDir]);
 
-  // PreferÃªncia de visualizaÃ§Ã£o (grade x detalhes) + tamanho dos Ã­cones.
+  // Preferência de visualização (grade x detalhes) + tamanho dos ícones.
   // Lidas no useState inicial (evita o "pisca" e o retorno indevido para lista
-  // quando a pÃ¡gina Ã© recarregada) e gravadas a cada mudanÃ§a.
+  // quando a página é recarregada) e gravadas a cada mudança.
   const changeView = (m: ViewMode) => {
     setViewMode(m);
     writePref('view', m);
@@ -332,7 +296,7 @@ const ErpDocuments: React.FC = () => {
   const loadFolders = useCallback(async () => {
     try {
       setFolders(await erpService.listFolders());
-    } catch { /* sidebar degrada para sÃ³-raiz em caso de erro */ }
+    } catch { /* sidebar degrada para só-raiz em caso de erro */ }
   }, []);
 
   useEffect(() => { loadFolders(); }, [loadFolders]);
@@ -380,8 +344,8 @@ const ErpDocuments: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Impede que o navegador navegue/abra o arquivo quando o usuÃ¡rio soltar
-    // fora da dropzone do modal (comportamento padrÃ£o de drag-and-drop).
+    // Impede que o navegador navegue/abra o arquivo quando o usuário soltar
+    // fora da dropzone do modal (comportamento padrão de drag-and-drop).
     const preventDefault = (e: DragEvent) => e.preventDefault();
     window.addEventListener('dragover', preventDefault);
     window.addEventListener('drop', preventDefault);
@@ -393,7 +357,7 @@ const ErpDocuments: React.FC = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  // OpÃ§Ãµes Ãºnicas para os filtros e datalists do formulÃ¡rio.
+  // Opções únicas para os filtros e datalists do formulário.
   const tipoOptions = useMemo(() => {
     const set = new Set<string>(TIPO_SUGGESTIONS);
     usedTipos.forEach((t) => set.add(t));
@@ -445,9 +409,9 @@ const ErpDocuments: React.FC = () => {
     setModalOpen(true);
   };
 
-  // Ã¢â€â‚¬ Arrastar pasta(s) para a aba Documentos Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-  // Com um modal aberto (ou prÃƒÂ©-visualizaÃƒÂ§ÃƒÂ£o), o arraste pertence ao modal Ã¢â‚¬â€
-  // os eventos React sobem pela Ã¡rvore mesmo com portal, entÃ£o ignoramos aqui.
+  // ─ Arrastar pasta(s) para a aba Documentos ───────────────────────────────
+  // Com um modal aberto (ou pré-visualização), o arraste pertence ao modal —
+  // os eventos React sobem pela árvore mesmo com portal, então ignoramos aqui.
   const arrasteNaAbaDesativado = () => modalOpen || folderModalOpen || !!previewDoc;
 
   const handlePageDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
@@ -608,48 +572,27 @@ const ErpDocuments: React.FC = () => {
     let arquivosComFalha = 0;
     let done = 0;
 
-    /** Cadastra 1 documento a partir dos arquivos diretos de uma pasta da arvore. */
-    const cadastrarDoc = async (pastaNome: string, arquivos: File[], folderId: string | null) => {
-      // 1 arquivo: vai como arquivo principal do documento.
-      const unico = arquivos.length === 1 ? arquivos[0] : null;
-      let arquivoUrl: string | null = null;
-      let arquivoNome: string | null = null;
-      let arquivoTamanho: number | null = null;
-      let arquivoTipo: string | null = null;
-      if (unico) {
-        const up = await uploadDocumentFile(unico);
-        arquivoUrl = up.url;
-        arquivoNome = unico.name;
-        arquivoTamanho = up.size;
-        arquivoTipo = unico.type || null;
-      }
+    /** Cadastra UM documento por arquivo, dentro da pasta em que ele estava. */
+    const cadastrarArquivo = async (arquivo: File, folderId: string | null) => {
+      const up = await uploadDocumentFile(arquivo);
       const created = await erpService.createDocument({
-        nome: pastaNome.slice(0, 255),
+        // O nome do arquivo (sem extensão) é o nome do documento.
+        nome: arquivo.name.replace(/\.[^.]+$/, '').slice(0, 255) || arquivo.name.slice(0, 255),
         tipo,
         numeracao: numeracaoAleatoria(),
         empresaEmissora: empresa || null,
         folderId,
-        arquivoUrl,
-        arquivoNome,
-        arquivoTamanho,
-        arquivoTipo,
+        arquivoUrl: up.url,
+        arquivoNome: arquivo.name,
+        arquivoTamanho: up.size,
+        arquivoTipo: arquivo.type || null,
       });
       criados.push(created.id);
-      // 2+ arquivos: ficam na sub-pasta do documento.
-      if (!unico) {
-        for (const f of arquivos) {
-          try {
-            await erpService.uploadDocumentFile(created.id, f);
-          } catch {
-            arquivosComFalha += 1;
-          }
-        }
-      }
     };
 
     /**
      * Percorre a subarvore criando as pastas reais na ordem (pai antes dos filhos)
-     * e cadastrando os documentos de cada pasta que tenha arquivos diretos.
+     * e cadastrando UM documento por arquivo, na pasta onde ele estava.
      */
     const percorrer = async (node: DroppedNode, parentId: string | null): Promise<void> => {
       const subpastas = node.filhos.filter(isPasta);
@@ -671,12 +614,13 @@ const ErpDocuments: React.FC = () => {
         });
         return;
       }
-      if (arquivosDiretos.length) {
+      for (const arq of arquivosDiretos) {
         try {
-          await cadastrarDoc(node.nome, arquivosDiretos, folderId);
+          await cadastrarArquivo(arq, folderId);
         } catch (err: any) {
+          arquivosComFalha += 1;
           toast({
-            title: 'Falha ao cadastrar "' + node.nome + '"',
+            title: 'Falha ao cadastrar "' + arq.name + '"',
             description: err?.message || 'Documento ignorado.',
             variant: 'destructive',
           });
@@ -707,19 +651,15 @@ const ErpDocuments: React.FC = () => {
       title: criados.length === 1 ? 'Documento cadastrado' : criados.length + ' documentos cadastrados',
       description: (pastasCriadas > 0 ? pastasCriadas + ' pasta(s) criadas na hierarquia. ' : '')
         + (arquivosComFalha > 0
-          ? arquivosComFalha + ' arquivo(s) nao foram enviados - reenvie pela sub-pasta.'
-          : 'Cada pasta virou um documento com seus arquivos.'),
+          ? arquivosComFalha + ' arquivo(s) nao foram enviados.'
+          : 'Cada arquivo virou um documento na sua pasta.'),
     });
     await load();
     refreshMeta();
     await loadFolders();
-    if (criados.length) {
-      setExpandedIds((prev) => { const n = new Set(prev); criados.forEach((id) => n.add(id)); return n; });
-      await Promise.all(criados.map((id) => loadDocFiles(id)));
-    }
   };
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Drag & drop de arquivo para dentro do modal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Drag & drop de arquivo para dentro do modal ─────────────────────────
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (!dragActive) setDragActive(true);
@@ -733,7 +673,7 @@ const ErpDocuments: React.FC = () => {
 
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    // SÃ³ desativa quando o ponteiro realmente sai da dropzone (nÃ£o ao passar
+    // Só desativa quando o ponteiro realmente sai da dropzone (não ao passar
     // por elementos filhos), evitando "piscar" no estado de arraste.
     if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
     setDragActive(false);
@@ -760,12 +700,12 @@ const ErpDocuments: React.FC = () => {
     setDragActive(false);
     const dt = e.dataTransfer;
     if (!dt) return;
-    // Pasta solta dentro do modal: lÃª recursivamente os arquivos de dentro dela.
+    // Pasta solta dentro do modal: lê recursivamente os arquivos de dentro dela.
     if (dragHasFolder(dt) === true) {
       const { folders, looseFiles } = await readDroppedEntries(dt);
       const todos = [...folders.flatMap(flattenFiles), ...looseFiles];
       if (!todos.length) return;
-      // Uma ÃƒÂºnica pasta e nome ainda vazio Ã¢â€ â€™ nome do documento vem da pasta.
+      // Uma única pasta e nome ainda vazio → nome do documento vem da pasta.
       if (folders.length === 1 && !form.nome.trim()) {
         setForm((prev) => ({ ...prev, nome: folders[0].nome.slice(0, 255) }));
       }
@@ -777,143 +717,13 @@ const ErpDocuments: React.FC = () => {
     addPendingFiles(files);
   };
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Sub-pasta Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-  const loadDocFiles = async (docId: string) => {
-    setFilesLoading((s) => ({ ...s, [docId]: true }));
-    try {
-      const files = await erpService.listDocumentFiles(docId);
-      setFilesStore((s) => ({ ...s, [docId]: files }));
-    } catch (e: any) {
-      toast({ title: 'Erro ao carregar arquivos', description: e?.message, variant: 'destructive' });
-    } finally {
-      setFilesLoading((s) => ({ ...s, [docId]: false }));
-    }
-  };
-
-  const toggleExpand = (doc: ErpDocument) => {
-    const next = new Set(expandedIds);
-    if (next.has(doc.id)) {
-      next.delete(doc.id);
-    } else {
-      next.add(doc.id);
-      if (!filesStore[doc.id] && !filesLoading[doc.id]) loadDocFiles(doc.id);
-    }
-    setExpandedIds(next);
-  };
-
-  // Ao buscar na aba Documentos, abre automaticamente as sub-pastas que tenham
-  // algum arquivo casando com o termo Ã¢â‚¬â€ assim o arquivo encontrado fica visÃƒÂ­vel
-  // sem precisar clicar na linha.
-  useEffect(() => {
-    const term = qDebounced.trim().toLowerCase();
-    if (!term) return;
-    const toOpen = items.filter(
-      (d) => (d.arquivosCount || 0) > 1
-        && (d.arquivosNomes || []).some((n) => (n || '').toLowerCase().includes(term)),
-    );
-    if (!toOpen.length) return;
-    setExpandedIds((prev) => {
-      const missing = toOpen.filter((d) => !prev.has(d.id));
-      if (!missing.length) return prev;
-      const next = new Set(prev);
-      missing.forEach((d) => next.add(d.id));
-      return next;
-    });
-    toOpen.forEach((d) => { if (!filesStore[d.id] && !filesLoading[d.id]) loadDocFiles(d.id); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qDebounced, items]);
-
-  // Recarrega a listagem (o backend pode normalizar a sub-pasta apÃ³s cada
-  // alteraÃ§Ã£o de arquivo: 1 arquivo vira vinculado simples, 2+ viram sub-pasta).
-  const refreshDoc = async (docId: string) => {
-    try {
-      const files = await erpService.listDocumentFiles(docId);
-      setFilesStore((s) => ({ ...s, [docId]: files }));
-    } catch { /* silencioso: a listagem geral jÃ¡ Ã© recarregada abaixo */ }
-    await load();
-  };
-
-  const addFileToDoc = async (docId: string, file: File) => {
-    setSubUploading((s) => ({ ...s, [docId]: true }));
-    try {
-      const created = await erpService.uploadDocumentFile(docId, file);
-      setFilesStore((s) => ({ ...s, [docId]: [created, ...(s[docId] || [])] }));
-      await refreshDoc(docId);
-    } catch (e: any) {
-      toast({ title: 'Erro ao enviar arquivo', description: e?.message, variant: 'destructive' });
-    } finally {
-      setSubUploading((s) => ({ ...s, [docId]: false }));
-    }
-  };
-
-  const handleRemoveDocFile = async (doc: ErpDocument, f: ErpDocumentFile) => {
-    const ok = await confirmDialog({
-      title: 'Remover arquivo?',
-      description: `"${f.arquivoNome}" serÃ¡ removido da sub-pasta de "${doc.nome}".`,
-      confirmLabel: 'Remover',
-      destructive: true,
-    });
-    if (!ok) return;
-    try {
-      await erpService.deleteDocumentFile(doc.id, f.id);
-      await refreshDoc(doc.id);
-    } catch (e: any) {
-      toast({ title: 'Erro ao remover arquivo', description: e?.message || 'Tente novamente.', variant: 'destructive' });
-    }
-  };
-
-  const openFilePreview = (doc: ErpDocument, f: ErpDocumentFile) => {
-    setPreviewDoc({
-      id: doc.id,
-      nome: f.arquivoNome,
-      tipo: doc.tipo,
-      numeracao: doc.numeracao,
-      empresaEmissora: doc.empresaEmissora,
-      arquivoUrl: f.arquivoUrl,
-      arquivoNome: f.arquivoNome,
-      arquivoTamanho: f.arquivoTamanho,
-      arquivoTipo: f.arquivoTipo,
-    });
-    setPreviewHideEdit(true);
-  };
-
   const onClosePreview = (open: boolean) => {
     if (!open) { setPreviewDoc(null); setPreviewHideEdit(false); }
   };
 
-  // Drag & drop do arquivo dentro de cada sub-pasta.
-  const onSubDragEnter = (docId: string) => (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setSubDragActive((s) => ({ ...s, [docId]: true }));
-  };
-  const onSubDragLeave = (docId: string) => (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
-    setSubDragActive((s) => ({ ...s, [docId]: false }));
-  };
-  const onSubDrop = (docId: string) => (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setSubDragActive((s) => ({ ...s, [docId]: false }));
-    const files = e.dataTransfer.files;
-    if (files && files.length) Array.from(files).forEach((f) => addFileToDoc(docId, f));
-  };
-
-  // Busca + filtro de tipo Ã¢â‚¬â€ prÃƒÂ³prios de cada sub-pasta (filtrados no cliente).
-  const visibleSubFiles = (docId: string) => {
-    const all = filesStore[docId] || [];
-    const qs = (fileSearch[docId] || '').trim().toLowerCase();
-    const tf = fileTipoFilter[docId] || 'all';
-    return all.filter((f) => {
-      if (qs && !f.arquivoNome.toLowerCase().includes(qs)) return false;
-      if (tf !== 'all' && getPreviewKind(f.arquivoNome, f.arquivoTipo) !== tf) return false;
-      return true;
-    });
-  };
-
   const handleSave = async () => {
     const nome = form.nome.trim();
-    if (!nome) return toast({ title: 'Nome obrigatÃ³rio', description: 'Informe o nome do documento.', variant: 'destructive' });
+    if (!nome) return toast({ title: 'Nome obrigatório', description: 'Informe o nome do documento.', variant: 'destructive' });
     setSaving(true);
     try {
       let arquivoUrl: string | null = !removeFile ? (editing?.arquivoUrl || null) : null;
@@ -921,12 +731,12 @@ const ErpDocuments: React.FC = () => {
       let arquivoTamanho: number | null = !removeFile ? (editing?.arquivoTamanho ?? null) : null;
       let arquivoTipo: string | null = !removeFile ? (editing?.arquivoTipo || null) : null;
 
-      // Regra de negÃ³cio:
-      //  - Com exatamente 1 arquivo (criaÃƒÂ§ÃƒÂ£o OU ediÃƒÂ§ÃƒÂ£o) Ã¢â€ â€™ ele vira/substitui o
+      // Regra de negócio:
+      //  - Com exatamente 1 arquivo (criação OU edição) → ele vira/substitui o
       //    arquivo vinculado do documento (fluxo simples, sem sub-pasta).
-      //  - Com 2+ arquivos Ã¢â€ â€™ o primeiro vira o arquivo vinculado principal
+      //  - Com 2+ arquivos → o primeiro vira o arquivo vinculado principal
       //    e o restante vai para a sub-pasta.
-      //  - selectedFile (botÃ£o "Substituir arquivo") tambÃ©m troca o principal.
+      //  - selectedFile (botão "Substituir arquivo") também troca o principal.
       const singleFile = pendingFiles.length === 1 ? pendingFiles[0] : null;
       const firstPending = pendingFiles.length > 0 ? pendingFiles[0] : null;
 
@@ -943,7 +753,7 @@ const ErpDocuments: React.FC = () => {
         arquivoTamanho = up.size;
         arquivoTipo = selectedFile.type || null;
       } else if (firstPending) {
-        // 2+ arquivos, sem seleÃƒÂ§ÃƒÂ£o Ã¢â€ â€™ primeiro vira o principal
+        // 2+ arquivos, sem seleção → primeiro vira o principal
         const up = await uploadDocumentFile(firstPending);
         arquivoUrl = up.url;
         arquivoNome = firstPending.name;
@@ -957,9 +767,9 @@ const ErpDocuments: React.FC = () => {
         numeracao: form.numeracao.trim() || null,
         empresaEmissora: form.empresaEmissora.trim() || null,
         observacoes: form.observacoes.trim() || null,
-        // Na criaÃ§Ã£o, o documento nasce na pasta aberta no explorer.
-        // Na ediÃƒÂ§ÃƒÂ£o, folderId nÃƒÂ£o ÃƒÂ© enviado Ã¢â‚¬â€ a posiÃƒÂ§ÃƒÂ£o atual ÃƒÂ© preservada
-        // (mover Ã© feito por arrastar/menu "Mover paraâ€¦").
+        // Na criação, o documento nasce na pasta aberta no explorer.
+        // Na edição, folderId não é enviado — a posição atual é preservada
+        // (mover é feito por arrastar/menu "Mover para…").
         ...(editing ? {} : { folderId: currentFolder === 'root' ? null : currentFolder }),
         arquivoUrl,
         arquivoNome,
@@ -977,9 +787,9 @@ const ErpDocuments: React.FC = () => {
       }
 
       // 2) Sub-pasta apenas quando houver 2+ arquivos.
-      //    Com 1 arquivo, ele jÃ¡ virou o arquivo vinculado principal.
-      //    Com 2+ e sem selectedFile, o primeiro jÃ¡ foi usado como principal
-      //    (firstPending), entÃ£o Remove da sub-pasta para evitar duplicaÃ§Ã£o.
+      //    Com 1 arquivo, ele já virou o arquivo vinculado principal.
+      //    Com 2+ e sem selectedFile, o primeiro já foi usado como principal
+      //    (firstPending), então Remove da sub-pasta para evitar duplicação.
       const subFiles =
         singleFile
           ? []
@@ -1006,7 +816,7 @@ const ErpDocuments: React.FC = () => {
         description: subCount > 1
           ? `${nome} salvo e sub-pasta gerada com ${subCount} arquivo(s).`
           : singleFile
-            ? `${nome}${editing ? ' atualizado' : ''} Â· arquivo "${singleFile.name}" vinculado.`
+            ? `${nome}${editing ? ' atualizado' : ''} · arquivo "${singleFile.name}" vinculado.`
             : `${nome} foi salvo com sucesso.`,
       });
       setModalOpen(false);
@@ -1015,13 +825,6 @@ const ErpDocuments: React.FC = () => {
       setFolderOrigin(null);
       await load();
       refreshMeta();
-
-      // Abre a sub-pasta do documento recÃ©m-criado para mostrar os arquivos enviados.
-      if (!editing?.id && docId && subCount > 1) {
-        const newDocId = docId as string;
-        setExpandedIds((prev) => { const n = new Set(prev); n.add(newDocId); return n; });
-        loadDocFiles(newDocId);
-      }
     } catch (e: any) {
       toast({ title: 'Erro ao salvar', description: e?.message || 'Tente novamente.', variant: 'destructive' });
     } finally {
@@ -1042,14 +845,14 @@ const ErpDocuments: React.FC = () => {
   const handleDelete = async (d: ErpDocument) => {
     const ok = await confirmDialog({
       title: 'Excluir documento?',
-      description: `"${d.nome}" serÃ¡ removido permanentemente${d.arquivoNome ? ` junto com o arquivo "${d.arquivoNome}"` : ''}.`,
+      description: `"${d.nome}" será removido permanentemente${d.arquivoNome ? ` junto com o arquivo "${d.arquivoNome}"` : ''}.`,
       confirmLabel: 'Excluir',
       destructive: true,
     });
     if (!ok) return;
     try {
       await erpService.deleteDocument(d.id);
-      toast({ title: 'Documento excluÃ­do' });
+      toast({ title: 'Documento excluído' });
       await load();
       refreshMeta();
     } catch (e: any) {
@@ -1066,33 +869,21 @@ const ErpDocuments: React.FC = () => {
     }
   };
 
-  /**
-   * Abre o editor do arquivo.
-   * - `file` presente = arquivo dentro da sub-pasta (o editor abre sÃ³ ele);
-   * - ausente = o arquivo principal do documento.
-   */
-  const handleEditFile = (d: ErpDocument, file?: ErpDocumentFile) => {
-    const nome = file?.arquivoNome || d.arquivoNome;
-    const ext = fileExtension(nome);
+  /** Abre o editor do arquivo: planilha (Univer) ou Office, conforme a extensão. */
+  const handleEditFile = (d: ErpDocument) => {
+    const ext = fileExtension(d.arquivoNome);
     const route = SPREADSHEET_EXTS.includes(ext) ? 'editar' : 'office';
-    navigate(`/erp/documentos/${d.id}/${route}${file ? `?fileId=${encodeURIComponent(file.id)}` : ''}`);
+    navigate(`/erp/documentos/${d.id}/${route}`);
   };
 
-  /** Arquivo da sub-pasta editÃ¡vel no sistema (Excel/Word/PowerPoint). */
-  const subFileEditable = (f: ErpDocumentFile) =>
-    !!f.arquivoUrl
-    && (SPREADSHEET_EXTS.includes(fileExtension(f.arquivoNome))
-      || OFFICE_DOC_EXTS.includes(fileExtension(f.arquivoNome)));
-
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Explorer: navegaÃƒÂ§ÃƒÂ£o, ordenaÃƒÂ§ÃƒÂ£o, seleÃƒÂ§ÃƒÂ£o, menu de contexto, mover Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Explorer: navegação, ordenação, seleção, menu de contexto, mover ──────
 
   const selectFolder = (id: string, opts?: { fromHistory?: boolean }) => {
     setCurrentFolder(id);
     setSelectedIds(new Set());
-    setExpandedIds(new Set());
     setCtxMenu(null);
     if (!opts?.fromHistory) {
-      // Corta o "avanÃ§ar" e anexa o novo destino ao histÃ³rico.
+      // Corta o "avançar" e anexa o novo destino ao histórico.
       setNavHistory((h) => [...h.slice(0, navIdx + 1), id]);
       setNavIdx((i) => i + 1);
     }
@@ -1112,7 +903,7 @@ const ErpDocuments: React.FC = () => {
     setNavIdx(i);
     selectFolder(navHistory[i], { fromHistory: true });
   };
-  /** Sobe um nÃƒÂ­vel (botÃƒÂ£o Ã¢â€ â€˜ / Backspace). */
+  /** Sobe um nível (botão ↑ / Backspace). */
   const goUp = () => {
     if (currentFolder === 'root') return;
     const parent = folderPath.length
@@ -1136,7 +927,7 @@ const ErpDocuments: React.FC = () => {
     return path;
   }, [currentFolder, folders]);
 
-  /** Pastas achatadas com profundidade (para o dialog "Mover paraâ€¦"). */
+  /** Pastas achatadas com profundidade (para o dialog "Mover para…"). */
   const flatFolders = useMemo(() => {
     const byId = new Map(folders.map((f) => [f.id, f]));
     const depthOf = (f: ErpFolder) => {
@@ -1169,14 +960,14 @@ const ErpDocuments: React.FC = () => {
     return [...list].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR') * mul);
   }, [folders, currentFolder, qDebounced, sortDir]);
 
-  /** Entradas do conteÃºdo: pastas primeiro, depois os documentos (estilo Explorer). */
+  /** Entradas do conteúdo: pastas primeiro, depois os documentos (estilo Explorer). */
   const entries = useMemo<ExplorerEntry[]>(() => [
     ...contentFolders.map((f) => ({ kind: 'folder' as const, id: f.id, folder: f })),
     ...items.map((d) => ({ kind: 'doc' as const, id: d.id, doc: d })),
   ], [contentFolders, items]);
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Pastas: criar / renomear / excluir (dialog ÃƒÂºnico da pÃƒÂ¡gina) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-  /** Mensagem de erro de uma rejeiÃ§Ã£o desconhecida (sem `any`). */
+  // ── Pastas: criar / renomear / excluir (dialog único da página) ───────────
+  /** Mensagem de erro de uma rejeição desconhecida (sem `any`). */
   const errMsg = (e: unknown) =>
     (e instanceof Error ? e.message : typeof e === 'string' ? e : 'Tente novamente.');
 
@@ -1188,7 +979,7 @@ const ErpDocuments: React.FC = () => {
     try {
       if (folderNameDlg.mode === 'create') {
         await erpService.createFolder({ nome, parentId: folderNameDlg.parentId ?? null });
-        toast({ title: 'Pasta criada', description: `"${nome}" estÃ¡ pronta para uso.` });
+        toast({ title: 'Pasta criada', description: `"${nome}" está pronta para uso.` });
       } else if (folderNameDlg.folderId) {
         await erpService.updateFolder(folderNameDlg.folderId, { nome });
         toast({ title: 'Pasta renomeada' });
@@ -1210,7 +1001,7 @@ const ErpDocuments: React.FC = () => {
   const deleteFolder = async (f: ErpFolder) => {
     const ok = await confirmDialog({
       title: `Excluir a pasta "${f.nome}"?`,
-      description: 'Nada Ã© perdido: documentos e subpastas passam para a pasta anterior (ou para a raiz).',
+      description: 'Nada é perdido: documentos e subpastas passam para a pasta anterior (ou para a raiz).',
       confirmLabel: 'Excluir pasta',
       destructive: true,
     });
@@ -1218,7 +1009,7 @@ const ErpDocuments: React.FC = () => {
     try {
       const r = await erpService.deleteFolder(f.id);
       toast({
-        title: 'Pasta excluÃ­da',
+        title: 'Pasta excluída',
         description: `${r.documentosMovidos} documento(s) e ${r.subpastasMovidas} subpasta(s) movidos para a pasta anterior.`,
       });
       if (currentFolder === f.id) selectFolder('root');
@@ -1230,7 +1021,7 @@ const ErpDocuments: React.FC = () => {
     }
   };
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Drag & drop de documentos sobre pastas do conteÃƒÂºdo Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Drag & drop de documentos sobre pastas do conteúdo ────────────────────
   const dragHasDocs = (dt: DataTransfer | null) =>
     !!dt && Array.from(dt.types || []).includes(DOC_DRAG_MIME);
 
@@ -1253,7 +1044,7 @@ const ErpDocuments: React.FC = () => {
     try {
       const ids: string[] = JSON.parse(e.dataTransfer.getData(DOC_DRAG_MIME));
       if (Array.isArray(ids) && ids.length) moveDocs(ids, entry.id);
-    } catch { /* arraste nÃ£o nosso */ }
+    } catch { /* arraste não nosso */ }
   };
 
   const sortIcon = (key: string) =>
@@ -1262,24 +1053,23 @@ const ErpDocuments: React.FC = () => {
         : <ChevronDown className="h-3 w-3 inline ml-1" />;
 
   /** Clique com Shift = intervalo (lista mista pasta+doc); Ctrl/Meta = alterna; simples = substitui.
-   *  Em pastas e sub-pastas, o clique simples NAVEGA/EXPANDE (como o Explorer);
+   *  Em pastas, o clique simples NAVEGA (como o Explorer);
    *  com Ctrl/Shift apenas seleciona. */
   const handleEntryClick = (entry: ExplorerEntry, e: React.MouseEvent, index: number) => {
     if (ctxMenu) setCtxMenu(null);
 
     const plain = !e.ctrlKey && !e.metaKey && !e.shiftKey;
 
-    // Pasta: clique simples entra. Modificadores continuam sendo para seleÃ§Ã£o.
+    // Pasta: clique simples entra. Modificadores continuam sendo para seleção.
     if (entry.kind === 'folder' && plain) {
       selectFolder(entry.folder.id);
       return;
     }
 
-    // Sub-pasta (documento com 2+ arquivos): clique simples abre os arquivos
-    // dentro dela, em vez de exigir duplo clique / abrir modal.
-    if (plain && entry.kind === 'doc' && (entry.doc.arquivosCount || 0) > 1) {
+    // Documento: clique simples abre o arquivo.
+    if (plain && entry.kind === 'doc') {
       setSelectedIds(new Set([entry.id]));
-      toggleExpand(entry.doc);
+      handleOpen(entry.doc);
       return;
     }
 
@@ -1306,7 +1096,7 @@ const ErpDocuments: React.FC = () => {
     setSelectedIds(new Set([entry.id]));
   };
 
-  /** BotÃ£o direito: seleciona o alvo (se ainda nÃ£o estiver) e abre o menu. */
+  /** Botão direito: seleciona o alvo (se ainda não estiver) e abre o menu. */
   const openContextMenu = (e: React.MouseEvent, target: CtxTarget) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1317,16 +1107,10 @@ const ErpDocuments: React.FC = () => {
     setCtxMenu({ x: e.clientX, y: e.clientY, target });
   };
 
-  /** Abre uma entrada: sub-pasta expande os arquivos Â· planilha/office vai pro editor Â·
-   *  o resto abre a prÃ©-visualizaÃ§Ã£o (ou o modal de ediÃ§Ã£o se nÃ£o tem arquivo). */
+  /** Abre uma entrada: planilha/office vai pro editor · o resto abre a pré-visualização
+   *  (ou o modal de edição, se não tiver arquivo). */
   const handleOpen = (d: ErpDocument) => {
     const ext = fileExtension(d.arquivoNome);
-    if ((d.arquivosCount || 0) > 1) {
-      // Sub-pasta: expande os arquivos internos. Na grade de Ã­cones nÃ£o hÃ¡
-      // tabela, entÃ£o abrimos o preview jÃ¡ filtrado pelos arquivos.
-      toggleExpand(d);
-      return;
-    }
     if (d.arquivoUrl && (SPREADSHEET_EXTS.includes(ext) || OFFICE_DOC_EXTS.includes(ext))) {
       handleEditFile(d);
       return;
@@ -1359,14 +1143,14 @@ const ErpDocuments: React.FC = () => {
     }
   };
 
-  /** Exclui vÃ¡rios documentos em lote (mesma confirmaÃ§Ã£o do individual). */
+  /** Exclui vários documentos em lote (mesma confirmação do individual). */
   const handleDeleteMany = async (ids: string[]) => {
     if (!ids.length) return;
     const ok = await confirmDialog({
       title: ids.length === 1 ? 'Excluir documento?' : `Excluir ${ids.length} documentos?`,
       description: ids.length === 1
-        ? 'Este documento serÃ¡ removido permanentemente, junto com seus arquivos.'
-        : 'Os documentos selecionados serÃ£o removidos permanentemente, junto com seus arquivos.',
+        ? 'Este documento será removido permanentemente, junto com seus arquivos.'
+        : 'Os documentos selecionados serão removidos permanentemente, junto com seus arquivos.',
       confirmLabel: 'Excluir',
       destructive: true,
     });
@@ -1378,8 +1162,8 @@ const ErpDocuments: React.FC = () => {
     setSelectedIds(new Set());
     setCtxMenu(null);
     toast({
-      title: falhas ? 'ExclusÃ£o parcial' : 'Documentos excluÃ­dos',
-      description: falhas ? `${falhas} falha(s) Ã¢â‚¬â€ tente novamente.` : undefined,
+      title: falhas ? 'Exclusão parcial' : 'Documentos excluídos',
+      description: falhas ? `${falhas} falha(s) — tente novamente.` : undefined,
       variant: falhas ? 'destructive' : undefined,
     });
     await load();
@@ -1387,7 +1171,7 @@ const ErpDocuments: React.FC = () => {
     loadFolders();
   };
 
-  /** Arraste de documentos: leva TODOS os selecionados (ou sÃ³ o clicado). */
+  /** Arraste de documentos: leva TODOS os selecionados (ou só o clicado). */
   const handleDocDragStart = (e: React.DragEvent, d: ErpDocument) => {
     const ids = selectedIds.has(d.id) ? Array.from(selectedIds) : [d.id];
     if (!selectedIds.has(d.id)) setSelectedIds(new Set(ids));
@@ -1395,19 +1179,19 @@ const ErpDocuments: React.FC = () => {
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ AÃƒÂ§ÃƒÂµes compartilhadas por toolbar, menu de contexto e teclado Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── Ações compartilhadas por toolbar, menu de contexto e teclado ─────────
 
-  /** Recarrega documentos + contadores + Ã¡rvore de pastas. */
+  /** Recarrega documentos + contadores + árvore de pastas. */
   const refreshAll = () => {
     load();
     refreshMeta();
     loadFolders();
   };
 
-  /** Documentos da seleÃ§Ã£o atual (a toolbar sÃ³ move/exclui documentos). */
+  /** Documentos da seleção atual (a toolbar só move/exclui documentos). */
   const docIdsOfSelection = () => items.filter((d) => selectedIds.has(d.id)).map((d) => d.id);
 
-  /** Exclui a seleÃ§Ã£o: pastas uma a uma (com confirmaÃ§Ã£o) + documentos em lote. */
+  /** Exclui a seleção: pastas uma a uma (com confirmação) + documentos em lote. */
   const deleteSelection = async () => {
     const selFolders = folders.filter((f) => selectedIds.has(f.id));
     const selDocs = items.filter((d) => selectedIds.has(d.id));
@@ -1417,7 +1201,7 @@ const ErpDocuments: React.FC = () => {
   };
 
 
-  /** SÃ³ documentos sÃ£o arrastÃ¡veis; a pasta Ã© destino, nÃ£o origem. */
+  /** Só documentos são arrastáveis; a pasta é destino, não origem. */
   const handleEntryDragStart = (e: React.DragEvent, entry: ExplorerEntry) => {
     if (entry.kind !== 'doc') {
       e.preventDefault();
@@ -1426,7 +1210,7 @@ const ErpDocuments: React.FC = () => {
     handleDocDragStart(e, entry.doc);
   };
 
-  /** BotÃƒÂ£o direito numa entrada Ã¢â‚¬â€ mantÃƒÂ©m o grupo selecionado quando hÃƒÂ¡ vÃƒÂ¡rios. */
+  /** Botão direito numa entrada — mantém o grupo selecionado quando há vários. */
   const handleItemContextMenu = (e: React.MouseEvent, entry: ExplorerEntry) => {
     if (entry.kind === 'folder') {
       openContextMenu(e, { kind: 'folder', folder: entry.folder });
@@ -1439,7 +1223,7 @@ const ErpDocuments: React.FC = () => {
   };
 
 
-  /** CabeÃ§alho + itens do menu de contexto conforme o alvo. */
+  /** Cabeçalho + itens do menu de contexto conforme o alvo. */
   const buildCtxMenu = (): { header: React.ReactNode; items: CtxMenuItem[] } | null => {
     if (!ctxMenu) return null;
     const t = ctxMenu.target;
@@ -1452,7 +1236,7 @@ const ErpDocuments: React.FC = () => {
             <p className="font-medium truncate" title={f.nome}>{f.nome}</p>
             <p className="text-xs text-muted-foreground">
               {f.documentosCount || 0} documento{(f.documentosCount || 0) === 1 ? '' : 's'}
-              {f.subpastasCount ? ` Â· ${f.subpastasCount} subpasta(s)` : ''}
+              {f.subpastasCount ? ` · ${f.subpastasCount} subpasta(s)` : ''}
             </p>
           </>
         ),
@@ -1500,7 +1284,7 @@ const ErpDocuments: React.FC = () => {
           { separator: true, label: '-' },
           { label: 'Renomear / editar', icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(first) },
           {
-            label: many ? `Mover ${t.ids.length} documentos paraâ€¦` : 'Mover paraâ€¦',
+            label: many ? `Mover ${t.ids.length} documentos para…` : 'Mover para…',
             icon: <FolderInput className="h-4 w-4 text-indigo-500" />,
             onClick: () => setMoveDlgIds(t.ids),
           },
@@ -1515,7 +1299,7 @@ const ErpDocuments: React.FC = () => {
       };
     }
 
-    // Ãrea vazia (conteÃºdo) ou raiz da Ã¡rvore: aÃ§Ãµes de pasta.
+    // Área vazia (conteúdo) ou raiz da árvore: ações de pasta.
     const parentId = currentFolder === 'root' ? null : currentFolder;
     return {
       header: (
@@ -1533,27 +1317,17 @@ const ErpDocuments: React.FC = () => {
     };
   };
 
-  /** Nomes de arquivos da sub-pasta que casaram com a busca geral. */
-  const searchMatched = (d: ErpDocument) => {
-    const term = qDebounced.trim().toLowerCase();
-    if (!term || (d.arquivosCount || 0) <= 1) return [];
-    return (d.arquivosNomes || []).filter((n) => (n || '').toLowerCase().includes(term));
-  };
-
-  /** BotÃµes de aÃ§Ã£o da linha de um documento (reaproveitados pela view Detalhes). */
+  /** Botões de ação da linha de um documento (reaproveitados pela view Detalhes). */
   const renderDocActions = (d: ErpDocument) => {
     const ext = fileExtension(d.arquivoNome);
     const canEditFile = !!d.arquivoUrl && (SPREADSHEET_EXTS.includes(ext) || OFFICE_DOC_EXTS.includes(ext));
-    const isSub = (d.arquivosCount || 0) > 1;
     return (
       <>
-        {!isSub && (
-          <Button variant="ghost" size="icon" className="h-7 w-7" title="Visualizar" disabled={!d.arquivoUrl}
-            onClick={() => setPreviewDoc(d)}>
-            <Eye className="h-4 w-4" />
-          </Button>
-        )}
-        {!isSub && canEditFile && (
+        <Button variant="ghost" size="icon" className="h-7 w-7" title="Visualizar" disabled={!d.arquivoUrl}
+          onClick={() => setPreviewDoc(d)}>
+          <Eye className="h-4 w-4" />
+        </Button>
+        {canEditFile && (
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
             title={SPREADSHEET_EXTS.includes(ext) ? 'Editar planilha' : 'Editar documento'}
@@ -1562,12 +1336,10 @@ const ErpDocuments: React.FC = () => {
             <FileEdit className="h-4 w-4 text-emerald-600" />
           </Button>
         )}
-        {!isSub && (
-          <Button variant="ghost" size="icon" className="h-7 w-7" title="Baixar" disabled={!d.arquivoUrl}
-            onClick={() => handleDownload(d)}>
-            <Download className="h-4 w-4" />
-          </Button>
-        )}
+        <Button variant="ghost" size="icon" className="h-7 w-7" title="Baixar" disabled={!d.arquivoUrl}
+          onClick={() => handleDownload(d)}>
+          <Download className="h-4 w-4" />
+        </Button>
         <Button variant="ghost" size="icon" className="h-7 w-7" title="Editar documento" onClick={() => openEdit(d)}>
           <Pencil className="h-4 w-4" />
         </Button>
@@ -1579,8 +1351,8 @@ const ErpDocuments: React.FC = () => {
     );
   };
 
-  // Atalhos: Del = excluir Â· F2 = renomear Â· F5 = atualizar Â· Backspace = subir Â·
-  // Ctrl+A = tudo Â· Esc = limpar seleÃ§Ã£o/menu.
+  // Atalhos: Del = excluir · F2 = renomear · F5 = atualizar · Backspace = subir ·
+  // Ctrl+A = tudo · Esc = limpar seleção/menu.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tgt = e.target as HTMLElement | null;
@@ -1612,153 +1384,6 @@ const ErpDocuments: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIds, entries, folders, ctxMenu, modalOpen, folderModalOpen, folderNameDlg, previewDoc, moveDlgIds]);
 
-  /** Linha extra da sub-pasta (2+ arquivos) - mantida na pagina por usar o estado de arquivos. */
-  const renderSubRow = (d: ErpDocument) => {
-    const subFiles = visibleSubFiles(d.id);
-    return (
-    <tr key={`${d.id}-sub`} className="border-t border-slate-100 bg-indigo-50/20">
-                        <td colSpan={8} className="px-3 py-3">
-                          <div className="rounded-xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
-                            {/* CabeÃ§alho da sub-pasta */}
-                            <div className="flex items-center justify-between gap-3 px-3 py-2 bg-indigo-50/70 border-b border-indigo-100">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <FolderArchive className="h-4 w-4 text-indigo-600 flex-shrink-0" />
-                                <span className="text-sm font-semibold truncate" title={d.nome}>
-                                  Arquivos de {d.nome}
-                                </span>
-                              </div>
-                              <Button
-                                variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0" title="Fechar sub-pasta"
-                                onClick={() => { const n = new Set(expandedIds); n.delete(d.id); setExpandedIds(n); }}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-
-                            {/* Barra de ferramentas */}
-                            <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-slate-50/70 border-b border-slate-100">
-                              <div className="relative flex-1 min-w-[180px]">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                  value={fileSearch[d.id] || ''}
-                                  onChange={(e) => setFileSearch((s) => ({ ...s, [d.id]: e.target.value }))}
-                                  placeholder="Buscar arquivo por nome..."
-                                  className="pl-9 h-9"
-                                />
-                              </div>
-                              <select
-                                value={fileTipoFilter[d.id] || 'all'}
-                                onChange={(e) => setFileTipoFilter((s) => ({ ...s, [d.id]: e.target.value }))}
-                                className="h-9 px-3 rounded-md border bg-white text-sm"
-                              >
-                                {SUB_FILTER_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                              </select>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-9"
-                                disabled={!!subUploading[d.id]}
-                                onClick={(e) => { e.stopPropagation(); document.getElementById(`erp-doc-sub-input-${d.id}`)?.click(); }}
-                              >
-                                {subUploading[d.id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-                                {subUploading[d.id] ? 'Enviandoâ€¦' : 'Adicionar'}
-                              </Button>
-                              <input
-                                id={`erp-doc-sub-input-${d.id}`}
-                                type="file"
-                                multiple
-                                className="hidden"
-                                onChange={(e) => {
-                                  const fs = e.target.files;
-                                  if (fs) Array.from(fs).forEach((f) => addFileToDoc(d.id, f));
-                                  e.target.value = '';
-                                }}
-                              />
-                            </div>
-
-                            {/* Lista de arquivos (ordenada por data, mais recentes primeiro) */}
-                            {filesLoading[d.id] ? (
-                              <div className="p-6 text-center text-muted-foreground">
-                                <Loader2 className="h-5 w-5 mx-auto animate-spin" /> Carregando arquivosâ€¦
-                              </div>
-                            ) : subFiles.length === 0 ? (
-                              <div className="p-6 text-center text-muted-foreground text-sm">
-                                {(filesStore[d.id] || []).length === 0
-                                  ? 'Ainda nÃƒÂ£o hÃƒÂ¡ arquivos nesta sub-pasta Ã¢â‚¬â€ use Ã¢â‚¬Å“AdicionarÃ¢â‚¬Â ou arraste um aqui embaixo.'
-                                  : 'Nenhum arquivo corresponde a esta busca e filtro.'}
-                              </div>
-                            ) : (
-                              <ul className="divide-y divide-slate-100">
-                                {subFiles.map((f) => {
-                                  const fKind = getPreviewKind(f.arquivoNome, f.arquivoTipo);
-                                  const fAbs = toAbsoluteUrl(f.arquivoUrl);
-                                  return (
-                                    <li key={f.id} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50/70">
-                                      <span className="flex-shrink-0">{subFileIcon(fKind)}</span>
-                                      <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-medium truncate" title={f.arquivoNome}>{f.arquivoNome}</p>
-                                        <p className="text-[11px] text-muted-foreground truncate">
-                                          {previewKindLabels[fKind]} Â· {formatFileSize(f.arquivoTamanho)} Â· {fmtDate(f.createdAt)}
-                                        </p>
-                                      </div>
-                                      <div className="flex items-center gap-0.5 flex-shrink-0">
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Abrir em nova aba"
-                                          disabled={!fAbs}
-                                          onClick={() => fAbs && window.open(fAbs, '_blank', 'noopener,noreferrer')}>
-                                          <ExternalLink className="h-4 w-4" />
-                                        </Button>
-                                        {subFileEditable(f) && (
-                                          <Button
-                                            variant="ghost" size="icon" className="h-8 w-8"
-                                            title={SPREADSHEET_EXTS.includes(fileExtension(f.arquivoNome)) ? 'Editar planilha' : 'Editar documento'}
-                                            onClick={() => handleEditFile(d, f)}
-                                          >
-                                            <FileEdit className="h-4 w-4 text-emerald-600" />
-                                          </Button>
-                                        )}
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Visualizar" onClick={() => openFilePreview(d, f)}>
-                                          <Eye className="h-4 w-4" />
-                                        </Button>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" title="Baixar"
-                                          onClick={() => downloadFileFromUrl(f.arquivoUrl, f.arquivoNome).catch(() => {})}>
-                                          <Download className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                          variant="ghost" size="icon" title="Remover arquivo"
-                                          className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                          onClick={() => handleRemoveDocFile(d, f)}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                      </div>
-                                    </li>
-                                  );
-                                })}
-                              </ul>
-                            )}
-
-                            {/* Zona de arraste (rodapÃ©) */}
-                            <div
-                              className={`border-t border-dashed px-3 py-3 text-center text-xs transition-colors cursor-pointer ${
-                                subDragActive[d.id] ? 'border-indigo-400 bg-indigo-50/70 text-indigo-700' : 'border-slate-200 text-muted-foreground hover:border-indigo-300 hover:bg-slate-50/60'
-                              }`}
-                              onDragEnter={onSubDragEnter(d.id)}
-                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!subDragActive[d.id]) setSubDragActive((s) => ({ ...s, [d.id]: true })); }}
-                              onDragLeave={onSubDragLeave(d.id)}
-                              onDrop={onSubDrop(d.id)}
-                            >
-                              <span className="inline-flex items-center gap-1.5">
-                                <UploadCloud className="h-3.5 w-3.5" />
-                                {subDragActive[d.id] ? 'Solte aqui para adicionar Ã  sub-pasta' : 'Arraste e solte arquivos aqui para adicionar Ã  sub-pasta'}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-    );
-  };
-
   return (
     <div
       className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 relative"
@@ -1767,15 +1392,15 @@ const ErpDocuments: React.FC = () => {
       onDragLeave={handlePageDragLeave}
       onDrop={handlePageDrop}
     >
-      {/* ÃƒÂrea de soltar pasta(s) Ã¢â‚¬â€ aparece ao arrastar uma pasta para a aba */}
+      {/* Área de soltar pasta(s) — aparece ao arrastar uma pasta para a aba */}
       {pageDrag && (
         <div className="fixed inset-0 z-40 bg-indigo-600/10 backdrop-blur-[1px] flex items-center justify-center pointer-events-none p-4">
           <div className="rounded-2xl border-2 border-dashed border-indigo-400 bg-white/95 px-6 py-5 shadow-xl text-center max-w-md">
             <FolderArchive className="h-9 w-9 mx-auto text-indigo-500" />
             <p className="mt-2 text-sm font-semibold text-slate-800">Solte a(s) pasta(s) para cadastrar</p>
             <p className="text-xs text-slate-500 mt-1">
-              <strong>1 pasta</strong> Ã¢â€ â€™ o nome do documento jÃƒÂ¡ vem preenchido com o nome dela.{' '}
-              <strong>2+ pastas</strong> Ã¢â€ â€™ informe sÃƒÂ³ o tipo: cada pasta vira um documento.
+              <strong>1 pasta</strong> → o nome do documento já vem preenchido com o nome dela.{' '}
+              <strong>2+ pastas</strong> → informe só o tipo: cada pasta vira um documento.
             </p>
           </div>
         </div>
@@ -1787,7 +1412,7 @@ const ErpDocuments: React.FC = () => {
             <FolderOpen className="h-6 w-6 text-indigo-500" /> Documentos
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Arquive e organize documentos de qualquer tipo Ã¢â‚¬â€ com prÃƒÂ©-visualizaÃƒÂ§ÃƒÂ£o e download.
+            Arquive e organize documentos de qualquer tipo — com pré-visualização e download.
             Arraste uma <strong>pasta</strong> aqui para cadastrar automaticamente.
           </p>
         </div>
@@ -1813,7 +1438,7 @@ const ErpDocuments: React.FC = () => {
             multiple
             className="hidden"
             ref={(el) => {
-              // webkitdirectory nÃƒÂ£o existe nos tipos do JSX Ã¢â‚¬â€ sÃƒÂ³ via atributo.
+              // webkitdirectory não existe nos tipos do JSX — só via atributo.
               if (el && !el.hasAttribute('webkitdirectory')) {
                 el.setAttribute('webkitdirectory', '');
                 el.setAttribute('directory', '');
@@ -1834,7 +1459,7 @@ const ErpDocuments: React.FC = () => {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] gap-4 items-start">
-        {/* Sidebar: Ã¡rvore de pastas */}
+        {/* Sidebar: árvore de pastas */}
         <FolderTree
           folders={folders}
           current={currentFolder}
@@ -1844,7 +1469,7 @@ const ErpDocuments: React.FC = () => {
         />
 
         <div className="space-y-4 min-w-0">
-          {/* Barra de endereÃ§o (voltar/avanÃ§ar/subir + caminho + busca) */}
+          {/* Barra de endereço (voltar/avançar/subir + caminho + busca) */}
           <ExplorerAddressBar
             path={folderPath}
             canBack={canBack}
@@ -1883,7 +1508,7 @@ const ErpDocuments: React.FC = () => {
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar por nome, numeraÃ§Ã£o, empresa, tipo ou arquivo (inclusive dentro de sub-pastas)â€¦"
+              placeholder="Buscar por nome, numeração, empresa, tipo ou arquivo (inclusive dentro de sub-pastas)…"
               className="pl-9"
             />
           </div>
@@ -1916,7 +1541,7 @@ const ErpDocuments: React.FC = () => {
         </div>
         <p className="text-xs text-muted-foreground mt-3 flex items-center gap-2 flex-wrap">
           <Badge variant="secondary">{total} documento{total === 1 ? '' : 's'}</Badge>
-          {hasFilters && <span>Filtros ativos Ã¢â‚¬â€ clique em Ã¢â‚¬Å“LimparÃ¢â‚¬Â para ver tudo.</span>}
+          {hasFilters && <span>Filtros ativos — clique em "Limpar" para ver tudo.</span>}
         </p>
       </Card>
 
@@ -1924,7 +1549,7 @@ const ErpDocuments: React.FC = () => {
       <Card
         className="p-0 overflow-hidden"
         onContextMenu={(e) => {
-          // SÃ³ abre o menu de "Ã¡rea vazia" fora de uma entrada/item.
+          // Só abre o menu de "área vazia" fora de uma entrada/item.
           if ((e.target as HTMLElement).closest('[data-exp-row]')) return;
           openContextMenu(e, { kind: 'empty' });
         }}
@@ -1966,11 +1591,7 @@ const ErpDocuments: React.FC = () => {
             sortKey={sortKey}
             sortDir={sortDir}
             onSort={toggleSort}
-            expandedIds={expandedIds}
-            onToggleExpand={toggleExpand}
-            renderSubRow={renderSubRow}
             renderDocActions={renderDocActions}
-            searchMatched={searchMatched}
           />
         )}
 
@@ -1995,8 +1616,8 @@ const ErpDocuments: React.FC = () => {
             iconSize={iconSize}
             onIconSize={changeIconSize}
           />
-        </div>{/* fecha coluna de conteÃºdo */}
-      </div>{/* fecha grid sidebar + conteÃºdo */}
+        </div>{/* fecha coluna de conteúdo */}
+      </div>{/* fecha grid sidebar + conteúdo */}
 
       {/* Menu de contexto (Explorer) */}
       {ctxMenu && (() => {
@@ -2026,12 +1647,12 @@ const ErpDocuments: React.FC = () => {
         onClose={() => setFolderNameDlg(null)}
       />
 
-      {/* Dialog Mover paraâ€¦ */}
+      {/* Dialog Mover para… */}
       <Dialog open={!!moveDlgIds} onOpenChange={(o) => { if (!o) setMoveDlgIds(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              Mover {moveDlgIds && moveDlgIds.length > 1 ? `${moveDlgIds.length} documentos` : 'documento'} paraâ€¦
+              Mover {moveDlgIds && moveDlgIds.length > 1 ? `${moveDlgIds.length} documentos` : 'documento'} para…
             </DialogTitle>
           </DialogHeader>
           <div className="max-h-[50vh] overflow-y-auto -mx-1 space-y-0.5 py-1">
@@ -2081,7 +1702,7 @@ const ErpDocuments: React.FC = () => {
               {editing ? 'Editar documento' : 'Novo documento'}
               {!editing && (
                 <span className="block text-xs font-normal text-muted-foreground mt-0.5">
-                  SerÃ¡ salvo em:{' '}
+                  Será salvo em:{' '}
                   <b>
                     {folderPath.length
                       ? folderPath.map((f) => f.nome).join(' / ')
@@ -2098,7 +1719,7 @@ const ErpDocuments: React.FC = () => {
               <div className="min-w-0 text-xs text-indigo-900">
                 <p className="font-semibold">Pasta arrastada: {folderOrigin}</p>
                 <p className="text-indigo-700/90 mt-0.5">
-                  O nome do documento e os arquivos jÃƒÂ¡ foram preenchidos Ã¢â‚¬â€ confira o tipo e conclua o cadastro.
+                  O nome do documento e os arquivos já foram preenchidos — confira o tipo e conclua o cadastro.
                 </p>
               </div>
             </div>
@@ -2111,7 +1732,7 @@ const ErpDocuments: React.FC = () => {
                 <Input
                   value={form.nome}
                   onChange={(e) => setForm({ ...form, nome: e.target.value })}
-                  placeholder="Ex: Contrato de locaÃƒÂ§ÃƒÂ£o Ã¢â‚¬â€ Cliente X"
+                  placeholder="Ex: Contrato de locação — Cliente X"
                 />
               </div>
               <div className="space-y-2">
@@ -2127,7 +1748,7 @@ const ErpDocuments: React.FC = () => {
                 </datalist>
               </div>
               <div className="space-y-2">
-                <Label>NumeraÃ§Ã£o</Label>
+                <Label>Numeração</Label>
                 <Input
                   value={form.numeracao}
                   onChange={(e) => setForm({ ...form, numeracao: e.target.value })}
@@ -2147,21 +1768,21 @@ const ErpDocuments: React.FC = () => {
                 </datalist>
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label>ObservaÃ§Ãµes</Label>
+                <Label>Observações</Label>
                 <Textarea
                   value={form.observacoes}
                   onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
                   rows={2}
-                  placeholder="AnotaÃ§Ãµes opcionais sobre o documento"
+                  placeholder="Anotações opcionais sobre o documento"
                 />
               </div>
             </div>
-{/* Arquivo vinculado (principal Ã¢â‚¬â€ apenas ao editar) */}
+{/* Arquivo vinculado (principal — apenas ao editar) */}
             {editing && editing.arquivoNome && (
               <div className="rounded-xl border p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <Label className="mb-0">Arquivo vinculado {`(atual)`}</Label>
-                  {removeFile && <span className="text-xs text-amber-600">SerÃ¡ desvinculado ao salvar.</span>}
+                  {removeFile && <span className="text-xs text-amber-600">Será desvinculado ao salvar.</span>}
                 </div>
                 {!removeFile && (
                   <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
@@ -2169,11 +1790,11 @@ const ErpDocuments: React.FC = () => {
                       <FileText className="h-5 w-5 text-emerald-600 flex-shrink-0" />
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{editing.arquivoNome}</p>
-                        <p className="text-xs text-muted-foreground">{formatFileSize(editing.arquivoTamanho)} Â· vinculado</p>
+                        <p className="text-xs text-muted-foreground">{formatFileSize(editing.arquivoTamanho)} · vinculado</p>
                       </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="sm" title="PrÃ©-visualizar" onClick={() => setPreviewDoc(editing!)}>
+                      <Button variant="ghost" size="sm" title="Pré-visualizar" onClick={() => setPreviewDoc(editing!)}>
                         <Eye className="h-4 w-4" />
                       </Button>
                       <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" title="Desvincular" onClick={() => setRemoveFile(true)}>
@@ -2209,10 +1830,10 @@ const ErpDocuments: React.FC = () => {
                       <FileText className="h-5 w-5 text-indigo-500 flex-shrink-0" />
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{selectedFile.name}</p>
-                        <p className="text-xs text-muted-foreground">{formatFileSize(selectedFile.size)} Â· substituirÃ¡ o atual</p>
+                        <p className="text-xs text-muted-foreground">{formatFileSize(selectedFile.size)} · substituirá o atual</p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedFile(null)} title="Remover seleÃ§Ã£o">
+                    <Button variant="ghost" size="sm" onClick={() => setSelectedFile(null)} title="Remover seleção">
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
@@ -2220,15 +1841,15 @@ const ErpDocuments: React.FC = () => {
               </div>
             )}
 
-            {/* Arquivos do documento: 1 arquivo = vinculado Â· 2+ = sub-pasta */}
+            {/* Arquivos do documento: 1 arquivo = vinculado · 2+ = sub-pasta */}
             <div className="rounded-xl border p-4 space-y-3 bg-slate-50/60">
               <div className="flex items-center justify-between gap-2">
                 <Label className="mb-0">Arquivos do documento</Label>
                 {pendingFiles.length > 0 && (
                   <span className="text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-2.5 py-0.5">
                     {pendingFiles.length === 1
-                      ? '1 arquivo Â· vinculado'
-                      : `${pendingFiles.length} arquivos Â· sub-pasta`}
+                      ? '1 arquivo · vinculado'
+                      : `${pendingFiles.length} arquivos · sub-pasta`}
                   </span>
                 )}
               </div>
@@ -2263,11 +1884,11 @@ const ErpDocuments: React.FC = () => {
                 <p className="text-xs opacity-80">
                   {pendingFiles.length === 1
                     ? editing
-                      ? 'Este arquivo substituirÃ¡ o arquivo vinculado atual'
-                      : 'Este arquivo serÃ¡ vinculado ao documento'
+                      ? 'Este arquivo substituirá o arquivo vinculado atual'
+                      : 'Este arquivo será vinculado ao documento'
                     : pendingFiles.length > 1
-                      ? `${pendingFiles.length} arquivos formarÃ£o uma sub-pasta`
-                      : 'ou clique para selecionar Â· 1 arquivo = vinculado Â· 2+ = sub-pasta'}
+                      ? `${pendingFiles.length} arquivos formarão uma sub-pasta`
+                      : 'ou clique para selecionar · 1 arquivo = vinculado · 2+ = sub-pasta'}
                 </p>
               </div>
 
@@ -2277,7 +1898,7 @@ const ErpDocuments: React.FC = () => {
                     <p className="text-xs font-medium text-muted-foreground">
                       {pendingFiles.length === 1
                         ? editing
-                          ? 'Arquivo que substituirÃ¡ o atual'
+                          ? 'Arquivo que substituirá o atual'
                           : 'Arquivo a ser vinculado'
                         : `Arquivos da sub-pasta (${pendingFiles.length})`}
                     </p>
@@ -2336,12 +1957,12 @@ const ErpDocuments: React.FC = () => {
               {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
               {saving
                 ? uploadProgress
-                  ? `Enviando ${uploadProgress.done}/${uploadProgress.total}â€¦`
-                  : 'Salvandoâ€¦'
+                  ? `Enviando ${uploadProgress.done}/${uploadProgress.total}…`
+                  : 'Salvando…'
                 : editing
-                  ? 'Salvar alteraÃ§Ãµes'
+                  ? 'Salvar alterações'
                   : pendingFiles.length > 1
-                    ? `Cadastrar documento Â· sub-pasta com ${pendingFiles.length} arquivos`
+                    ? `Cadastrar documento · sub-pasta com ${pendingFiles.length} arquivos`
                     : pendingFiles.length === 1
                       ? 'Cadastrar documento com arquivo'
                       : 'Cadastrar documento'}
@@ -2350,7 +1971,7 @@ const ErpDocuments: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Cadastro em lote Ã¢â‚¬â€ 2+ pastas soltas na aba Documentos */}
+      {/* Cadastro em lote — 2+ pastas soltas na aba Documentos */}
       <Dialog
         open={folderModalOpen}
         onOpenChange={(o) => { if (!o && !folderSaving) { setFolderModalOpen(false); setFolderQueue([]); } }}
@@ -2379,7 +2000,7 @@ const ErpDocuments: React.FC = () => {
                   list="erp-doc-tipos-lote"
                   value={folderTipo}
                   onChange={(e) => setFolderTipo(e.target.value)}
-                  placeholder="Ex: OrÃ§amento"
+                  placeholder="Ex: Orçamento"
                   disabled={folderSaving}
                 />
                 <datalist id="erp-doc-tipos-lote">
@@ -2472,14 +2093,14 @@ const ErpDocuments: React.FC = () => {
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : <Plus className="h-4 w-4" />}
               {folderSaving
-                ? (folderProgress ? `Cadastrando ${folderProgress.done}/${folderProgress.total}â€¦` : 'Cadastrandoâ€¦')
+                ? (folderProgress ? `Cadastrando ${folderProgress.done}/${folderProgress.total}…` : 'Cadastrando…')
                 : `Importar ${countDocsDaFila(folderQueue)} documento${countDocsDaFila(folderQueue) === 1 ? '' : 's'}`}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* PrÃ©-visualizaÃ§Ã£o */}
+      {/* Pré-visualização */}
       <DocumentPreviewDialog
         open={!!previewDoc}
         doc={previewDoc}

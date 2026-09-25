@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -11,18 +11,18 @@ import {
 import type { SortKey } from './types';
 
 interface Props {
-  /** BotÃƒÂ£o primÃƒÂ¡rio "Novo" Ã¢â‚¬â€ cria documento OU pasta no local atual. */
+  /** Botão primário "Novo" — cria documento OU pasta no local atual. */
   onNewDoc: () => void;
   onNewFolder: () => void;
-  /** Importar arquivo/pasta do sistema (reaproveita os inputs ocultos da pÃƒÂ¡gina). */
+  /** Importar arquivo/pasta do sistema (reaproveita os inputs ocultos da página). */
   onImportFiles: () => void;
   onImportFolder: () => void;
   onRefresh: () => void;
-  /** AÃƒÂ§ÃƒÂµes que sÃƒÂ³ aparecem com itens selecionados (estilo Explorer). */
+  /** Ações que só aparecem com itens selecionados (estilo Explorer). */
   selectedCount: number;
   onMoveSelected: () => void;
   onDeleteSelected: () => void;
-  /** OrdenaÃƒÂ§ÃƒÂ£o e visualizaÃƒÂ§ÃƒÂ£o. */
+  /** Ordenação e visualização. */
   sortKey: SortKey;
   sortDir: 'asc' | 'desc';
   onSort: (key: SortKey, dir: 'asc' | 'desc') => void;
@@ -31,12 +31,12 @@ interface Props {
 
 const SORT_OPTIONS: Array<{ key: SortKey; label: string }> = [
   { key: 'nome', label: 'Nome' },
-  { key: 'data', label: 'Data de modificaÃƒÂ§ÃƒÂ£o' },
+  { key: 'data', label: 'Data de modificação' },
   { key: 'tipo', label: 'Tipo' },
   { key: 'empresa', label: 'Empresa emissora' },
 ];
 
-/** Command bar estilo Windows 11: Novo Ã¢â€“Â¾ Ã‚Â· Importar Ã‚Â· Ordenar Ã¢â€“Â¾ Ã‚Â· Exibir Ã¢â€“Â¾ Ã‚Â· Atualizar. */
+/** Command bar estilo Windows 11: Novo ▾ · Importar · Ordenar ▾ · Exibir ▾ · Atualizar. */
 const ExplorerToolbar: React.FC<Props> = ({
   onNewDoc, onNewFolder, onImportFiles, onImportFolder, onRefresh,
   selectedCount, onMoveSelected, onDeleteSelected,
@@ -76,8 +76,8 @@ const ExplorerToolbar: React.FC<Props> = ({
         <span className="text-xs text-slate-600 tabular-nums px-1">
           {selectedCount} selecionado{selectedCount === 1 ? '' : 's'}
         </span>
-        <Button size="sm" variant="ghost" className="h-8" onClick={onMoveSelected} title="Mover paraÃ¢â‚¬Â¦">
-          <FolderPlus className="h-4 w-4 mr-1.5 text-indigo-500" /> Mover paraÃ¢â‚¬Â¦
+        <Button size="sm" variant="ghost" className="h-8" onClick={onMoveSelected} title="Mover para…">
+          <FolderPlus className="h-4 w-4 mr-1.5 text-indigo-500" /> Mover para…
         </Button>
         <Button
           size="sm" variant="ghost"
@@ -102,13 +102,13 @@ const ExplorerToolbar: React.FC<Props> = ({
           <div key={o.key}>
             <DropdownMenuItem onClick={() => onSort(o.key, 'asc')}>
               <ArrowDownAZ className="h-4 w-4 mr-2 text-slate-500" />
-              {o.label} (AÃ¢â€ â€™Z / recentes)
-              {sortKey === o.key && sortDir === 'asc' && <span className="ml-auto text-indigo-600">Ã¢Å“â€œ</span>}
+              {o.label} (A→Z / recentes)
+              {sortKey === o.key && sortDir === 'asc' && <span className="ml-auto text-indigo-600">✓</span>}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onSort(o.key, 'desc')}>
               <ArrowUpAZ className="h-4 w-4 mr-2 text-slate-500" />
-              {o.label} (ZÃ¢â€ â€™A / antigos)
-              {sortKey === o.key && sortDir === 'desc' && <span className="ml-auto text-indigo-600">Ã¢Å“â€œ</span>}
+              {o.label} (Z→A / antigos)
+              {sortKey === o.key && sortDir === 'desc' && <span className="ml-auto text-indigo-600">✓</span>}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </div>
