@@ -1,49 +1,46 @@
-import React from 'react';
+﻿import React from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  ArrowDownAZ, ArrowUpAZ, ChevronDown, FilePlus2, FolderPlus, LayoutGrid, List,
+  ArrowDownAZ, ArrowUpAZ, ChevronDown, FilePlus2, FolderPlus,
   Loader2, RefreshCw, Trash2, UploadCloud,
 } from 'lucide-react';
 
-export type ViewMode = 'grid' | 'details';
-export type SortKey = 'nome' | 'data' | 'tipo' | 'empresa';
+import type { SortKey } from './types';
 
 interface Props {
-  /** Botão primário "Novo" — cria documento OU pasta no local atual. */
+  /** BotÃƒÂ£o primÃƒÂ¡rio "Novo" Ã¢â‚¬â€ cria documento OU pasta no local atual. */
   onNewDoc: () => void;
   onNewFolder: () => void;
-  /** Importar arquivo/pasta do sistema (reaproveita os inputs ocultos da página). */
+  /** Importar arquivo/pasta do sistema (reaproveita os inputs ocultos da pÃƒÂ¡gina). */
   onImportFiles: () => void;
   onImportFolder: () => void;
   onRefresh: () => void;
-  /** Ações que só aparecem com itens selecionados (estilo Explorer). */
+  /** AÃƒÂ§ÃƒÂµes que sÃƒÂ³ aparecem com itens selecionados (estilo Explorer). */
   selectedCount: number;
   onMoveSelected: () => void;
   onDeleteSelected: () => void;
-  /** Ordenação e visualização. */
+  /** OrdenaÃƒÂ§ÃƒÂ£o e visualizaÃƒÂ§ÃƒÂ£o. */
   sortKey: SortKey;
   sortDir: 'asc' | 'desc';
   onSort: (key: SortKey, dir: 'asc' | 'desc') => void;
-  viewMode: ViewMode;
-  onViewMode: (m: ViewMode) => void;
   loading?: boolean;
 }
 
 const SORT_OPTIONS: Array<{ key: SortKey; label: string }> = [
   { key: 'nome', label: 'Nome' },
-  { key: 'data', label: 'Data de modificação' },
+  { key: 'data', label: 'Data de modificaÃƒÂ§ÃƒÂ£o' },
   { key: 'tipo', label: 'Tipo' },
   { key: 'empresa', label: 'Empresa emissora' },
 ];
 
-/** Command bar estilo Windows 11: Novo ▾ · Importar · Ordenar ▾ · Exibir ▾ · Atualizar. */
+/** Command bar estilo Windows 11: Novo Ã¢â€“Â¾ Ã‚Â· Importar Ã‚Â· Ordenar Ã¢â€“Â¾ Ã‚Â· Exibir Ã¢â€“Â¾ Ã‚Â· Atualizar. */
 const ExplorerToolbar: React.FC<Props> = ({
   onNewDoc, onNewFolder, onImportFiles, onImportFolder, onRefresh,
   selectedCount, onMoveSelected, onDeleteSelected,
-  sortKey, sortDir, onSort, viewMode, onViewMode, loading,
+  sortKey, sortDir, onSort, loading,
 }) => (
   <div className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-white px-2 py-1.5">
     <DropdownMenu>
@@ -79,8 +76,8 @@ const ExplorerToolbar: React.FC<Props> = ({
         <span className="text-xs text-slate-600 tabular-nums px-1">
           {selectedCount} selecionado{selectedCount === 1 ? '' : 's'}
         </span>
-        <Button size="sm" variant="ghost" className="h-8" onClick={onMoveSelected} title="Mover para…">
-          <FolderPlus className="h-4 w-4 mr-1.5 text-indigo-500" /> Mover para…
+        <Button size="sm" variant="ghost" className="h-8" onClick={onMoveSelected} title="Mover paraÃ¢â‚¬Â¦">
+          <FolderPlus className="h-4 w-4 mr-1.5 text-indigo-500" /> Mover paraÃ¢â‚¬Â¦
         </Button>
         <Button
           size="sm" variant="ghost"
@@ -105,35 +102,21 @@ const ExplorerToolbar: React.FC<Props> = ({
           <div key={o.key}>
             <DropdownMenuItem onClick={() => onSort(o.key, 'asc')}>
               <ArrowDownAZ className="h-4 w-4 mr-2 text-slate-500" />
-              {o.label} (A→Z / recentes)
-              {sortKey === o.key && sortDir === 'asc' && <span className="ml-auto text-indigo-600">✓</span>}
+              {o.label} (AÃ¢â€ â€™Z / recentes)
+              {sortKey === o.key && sortDir === 'asc' && <span className="ml-auto text-indigo-600">Ã¢Å“â€œ</span>}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onSort(o.key, 'desc')}>
               <ArrowUpAZ className="h-4 w-4 mr-2 text-slate-500" />
-              {o.label} (Z→A / antigos)
-              {sortKey === o.key && sortDir === 'desc' && <span className="ml-auto text-indigo-600">✓</span>}
+              {o.label} (ZÃ¢â€ â€™A / antigos)
+              {sortKey === o.key && sortDir === 'desc' && <span className="ml-auto text-indigo-600">Ã¢Å“â€œ</span>}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </div>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
-
-    <div className="flex items-center rounded-md border bg-white p-0.5" role="group" aria-label="Modo de visualização">
-      <Button
-        size="sm" variant={viewMode === 'details' ? 'secondary' : 'ghost'}
-        className="h-7 px-2" title="Detalhes" onClick={() => onViewMode('details')}
-      >
-        <List className="h-4 w-4" />
-      </Button>
-      <Button
-        size="sm" variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
-        className="h-7 px-2" title="Ícones" onClick={() => onViewMode('grid')}
-      >
-        <LayoutGrid className="h-4 w-4" />
-      </Button>
-    </div>
   </div>
 );
 
 export default ExplorerToolbar;
+

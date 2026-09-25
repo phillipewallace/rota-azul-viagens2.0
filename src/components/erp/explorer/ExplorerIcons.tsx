@@ -1,20 +1,28 @@
-import React from 'react';
+﻿import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Folder, FolderArchive, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { getPreviewKind } from '@/utils/documentFiles';
 import { toAbsoluteUrl } from '@/utils/absoluteUrl';
 import { SPREADSHEET_EXTS, OFFICE_DOC_EXTS } from '@/utils/spreadsheetConvert';
 import { fmtDate } from './format';
+import { ICON_BOX, ICON_GRID } from './types';
+import type { IconSize } from './types';
 import type { ExplorerBaseProps } from './ExplorerDetails';
 
 const fileExtension = (name?: string | null) => (name ? name.split('.').pop()!.toLowerCase() : '');
 
+interface Props extends ExplorerBaseProps {
+  /** Tamanho dos ícones (os "4 quadradinhos"). */
+  iconSize: IconSize;
+}
+
 /** Visualização em Ícones/Grade estilo Explorer (pastas primeiro). */
-const ExplorerIcons: React.FC<ExplorerBaseProps> = ({
+const ExplorerIcons: React.FC<Props> = ({
   entries, selectedIds, loading, hasFilters,
-  onItemClick, onItemOpen, onItemContextMenu, onItemDragStart,
+  onItemClick, onItemContextMenu, onItemDragStart,
   dropId, onItemDragOver, onItemDragLeave, onItemDrop,
   onFolderNewSub, onFolderRename, onFolderDelete,
+  iconSize,
 }) => {
   if (!entries.length) {
     return (
@@ -31,8 +39,10 @@ const ExplorerIcons: React.FC<ExplorerBaseProps> = ({
     );
   }
 
+  const box = ICON_BOX[iconSize];
+
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 p-4">
+    <div className={`grid ${ICON_GRID[iconSize]} gap-3 p-4`}>
       {entries.map((entry, idx) => {
         const isSel = selectedIds.has(entry.id);
 
@@ -44,7 +54,6 @@ const ExplorerIcons: React.FC<ExplorerBaseProps> = ({
               key={f.id}
               data-exp-row
               onClick={(e) => onItemClick(entry, e, idx)}
-              onDoubleClick={() => onItemOpen(entry)}
               onContextMenu={(e) => onItemContextMenu(e, entry)}
               onDragOver={(e) => onItemDragOver(entry, e)}
               onDragLeave={(e) => onItemDragLeave(entry, e)}
@@ -56,8 +65,8 @@ const ExplorerIcons: React.FC<ExplorerBaseProps> = ({
                 ${isDrop ? 'ring-2 ring-indigo-500 border-indigo-400' : ''}`}
               title={`Abrir "${f.nome}" — ou arraste documentos aqui para movê-los`}
             >
-              <div className="h-16 w-16 flex items-center justify-center rounded-lg bg-indigo-50/60">
-                <Folder className="h-10 w-10 text-indigo-500" />
+              <div className={`${box.box} flex items-center justify-center rounded-lg bg-indigo-50/60`}>
+                <Folder className={`${box.icon} text-indigo-500`} />
               </div>
               <p className="text-xs font-medium truncate w-full" title={f.nome}>{f.nome}</p>
               <p className="text-[10px] text-muted-foreground">
@@ -111,21 +120,23 @@ const ExplorerIcons: React.FC<ExplorerBaseProps> = ({
             draggable
             onDragStart={(e) => onItemDragStart(e, entry)}
             onClick={(e) => onItemClick(entry, e, idx)}
-            onDoubleClick={() => onItemOpen(entry)}
             onContextMenu={(e) => onItemContextMenu(e, entry)}
             className={`group relative flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center cursor-pointer transition-colors
               ${isSel
                 ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-300'
                 : 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50'}`}
-            title={`${d.nome}${d.tipo ? ` · ${d.tipo}` : ''} — duplo clique para abrir`}
+            title={`${d.nome}${d.tipo ? ` · ${d.tipo}` : ''} — clique para abrir`}
           >
-            <div className="h-16 w-16 flex items-center justify-center overflow-hidden rounded-lg bg-slate-50">
+            <div className={`${box.box} flex items-center justify-center overflow-hidden rounded-lg bg-slate-50`}>
               {thumb ? (
                 <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" />
               ) : isSub ? (
-                <FolderArchive className="h-9 w-9 text-indigo-500" />
+                <FolderArchive className={`${box.icon} text-indigo-500`} />
               ) : (
-                <span className="[&>svg]:h-9 [&>svg]:w-9 flex items-center justify-center text-[10px] font-bold text-slate-400">
+                <span
+                  className="flex items-center justify-center text-[10px] font-bold text-slate-400"
+                  style={{ fontSize: iconSize === 'sm' ? 9 : iconSize === 'xl' ? 16 : 12 }}
+                >
                   {kind === 'pdf' ? 'PDF' : kind === 'office' ? 'XLS' : kind === 'image' ? 'IMG' : 'FILE'}
                 </span>
               )}

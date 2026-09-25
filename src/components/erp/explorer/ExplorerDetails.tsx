@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -17,7 +17,6 @@ export interface ExplorerBaseProps {
   loading: boolean;
   hasFilters: boolean;
   onItemClick: (entry: ExplorerEntry, e: React.MouseEvent, index: number) => void;
-  onItemOpen: (entry: ExplorerEntry) => void;
   onItemContextMenu: (e: React.MouseEvent, entry: ExplorerEntry) => void;
   onItemDragStart: (e: React.DragEvent, entry: ExplorerEntry) => void;
   /** Id da pasta sob o cursor durante arraste de documentos (highlight). */
@@ -63,7 +62,7 @@ const EmptyState: React.FC<{ loading: boolean; hasFilters: boolean }> = ({ loadi
 /** Visualização em Detalhes: tabela com colunas estilo Explorer (pastas primeiro). */
 const ExplorerDetails: React.FC<Props> = ({
   entries, selectedIds, loading, hasFilters,
-  onItemClick, onItemOpen, onItemContextMenu, onItemDragStart,
+  onItemClick, onItemContextMenu, onItemDragStart,
   dropId, onItemDragOver, onItemDragLeave, onItemDrop,
   onFolderNewSub, onFolderRename, onFolderDelete,
   sortKey, sortDir, onSort, expandedIds, onToggleExpand,
@@ -111,7 +110,6 @@ const ExplorerDetails: React.FC<Props> = ({
                 data-exp-row
                 className={`border-t border-slate-100 cursor-pointer ${isSel ? 'bg-indigo-100/70 ring-1 ring-inset ring-indigo-300' : 'hover:bg-slate-50/60'} ${isDrop ? 'outline outline-2 -outline-offset-2 outline-indigo-400' : ''}`}
                 onClick={(e) => onItemClick(entry, e, idx)}
-                onDoubleClick={() => onItemOpen(entry)}
                 onContextMenu={(e) => onItemContextMenu(e, entry)}
                 onDragOver={(e) => onItemDragOver(entry, e)}
                 onDragLeave={(e) => onItemDragLeave(entry, e)}
@@ -168,13 +166,12 @@ const ExplorerDetails: React.FC<Props> = ({
                 data-exp-row
                 className={`border-t border-slate-100 cursor-pointer ${isSel ? 'bg-indigo-100/70 ring-1 ring-inset ring-indigo-300' : isExpanded ? 'bg-indigo-50/40' : 'hover:bg-slate-50/60'}`}
                 onClick={(e) => onItemClick(entry, e, idx)}
-                onDoubleClick={() => onItemOpen(entry)}
                 onContextMenu={(e) => onItemContextMenu(e, entry)}
                 draggable
                 onDragStart={(e) => onItemDragStart(e, entry)}
                 title={isSub
-                  ? 'Duplo clique para abrir a sub-pasta · arraste para mover'
-                  : 'Duplo clique para abrir · arraste para mover'}
+                  ? 'Clique para abrir a sub-pasta · arraste para mover'
+                  : 'Clique para abrir · arraste para mover'}
               >
                 <td className="px-3 py-2.5">
                   <div className="flex items-center gap-1.5 min-w-0">

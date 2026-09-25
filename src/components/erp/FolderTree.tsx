@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sidebar do Explorer de Documentos — árvore de pastas.
  *
  * - Nó raiz "Documentos" = documentos sem pasta (folder_id NULL).
@@ -7,7 +7,7 @@
  * - Arrastar documentos internos (dataTransfer 'application/x-erp-docs')
  *   para uma pasta move os documentos selecionados para ela.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { erpService, type ErpFolder } from '@/services/erp';
 import { useToast } from '@/hooks/use-toast';
 import { confirmDialog } from '@/lib/confirm';
@@ -70,6 +70,30 @@ const FolderTree: React.FC<Props> = ({ folders, current, onSelect, onChanged, on
     else n.add(id);
     return n;
   });
+
+  /**
+   * Abre automaticamente todos os ancestrais da pasta atual, para o usuário
+   * sempre ver onde está na hierarquia (comportamento do Explorer do Windows).
+   * Só adiciona — nunca recolhe o que o usuário abriu manualmente.
+   */
+  useEffect(() => {
+    if (!current || current === 'root') return;
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    const chain: string[] = [];
+    let node = byId.get(current);
+    // Sobe até a raiz guardando o caminho (protege contra ciclo acidental).
+    while (node && chain.length < 50) {
+      chain.push(node.id);
+      node = node.parentId ? byId.get(node.parentId) : undefined;
+    }
+    if (!chain.length) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      chain.forEach((id) => { if (!next.has(id)) { next.add(id); changed = true; } });
+      return changed ? next : prev;
+    });
+  }, [current, folders]);
 
   const submitName = async () => {
     if (!nameDlg) return;

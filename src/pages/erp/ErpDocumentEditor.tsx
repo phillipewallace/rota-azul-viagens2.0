@@ -1,11 +1,11 @@
-/**
+﻿/**
  * ERP → Documentos → Editor de Planilhas
  * Abre .xlsx/.xls/.csv/.ods em um editor de planilha completo (Univer — MIT):
  * fórmulas, múltiplas abas, formatação, ordenação. Ao salvar, gera o arquivo no
  * formato original e atualiza o documento (nova versão) via /upload + PUT.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { createUniver, LocaleType } from '@univerjs/presets';
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core';
 import ptBRLocale from '@univerjs/preset-sheets-core/locales/pt-BR';
@@ -48,6 +48,10 @@ async function uploadDocumentFile(file: File): Promise<{ url: string; size: numb
 
 const ErpDocumentEditor: React.FC = () => {
   const { id = '' } = useParams();
+  // `?fileId=` = edita um arquivo específico dentro da sub-pasta do documento.
+  // Sem ele, edita o arquivo principal vinculado ao documento.
+  const [params] = useSearchParams();
+  const fileId = params.get('fileId') || '';
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -60,6 +64,8 @@ const ErpDocumentEditor: React.FC = () => {
   const univerRef = useRef<any | null>(null);
   const apiRef = useRef<any>(null);
   const savedNameRef = useRef('');
+  /** Arquivo em edição: da sub-pasta (?fileId) ou o principal do documento. */
+  const [target, setTarget] = useState<{ url: string; nome: string; fileId: string | null } | null>(null);
 
   // Carrega o documento + o arquivo e inicializa o Univer quando o container existe.
   useEffect(() => {
@@ -71,10 +77,26 @@ const ErpDocumentEditor: React.FC = () => {
         const d = await erpService.getDocument(id);
         if (cancelled) return;
         setDoc(d);
-        if (!d.arquivoUrl) throw new Error('Este documento não possui arquivo de planilha.');
-        savedNameRef.current = d.arquivoNome || `${d.nome}.xlsx`;
 
-        const res = await fetch(toAbsoluteUrl(d.arquivoUrl));
+        // Resolve qual arquivo abrir: o da sub-pasta (fileId) ou o principal.
+        let url: string | null = null;
+        let nome = '';
+        if (fileId) {
+          const files = await erpService.listDocumentFiles(id);
+          if (cancelled) return;
+          const f = files.find((x) => x.id === fileId);
+          if (!f) throw new Error('Este arquivo não está mais na sub-pasta.');
+          url = f.arquivoUrl;
+          nome = f.arquivoNome || `${d.nome}.xlsx`;
+        } else {
+          url = d.arquivoUrl;
+          nome = d.arquivoNome || `${d.nome}.xlsx`;
+        }
+        if (!url) throw new Error('Este documento não possui arquivo de planilha.');
+        savedNameRef.current = nome;
+        setTarget({ url, nome, fileId: fileId || null });
+
+        const res = await fetch(toAbsoluteUrl(url));
         if (!res.ok) throw new Error('Falha ao baixar o arquivo da planilha.');
         const sheets: UniverSheetModel[] = spreadsheetFileToSheets(await res.arrayBuffer());
         if (!sheets.length) throw new Error('A planilha não possui abas legíveis.');
@@ -151,14 +173,22 @@ const ErpDocumentEditor: React.FC = () => {
       console.log('[EditorPlanilha] 💾 Blob gerado:', { format, bytes: blob.size, nome: savedNameRef.current });
       const up = await uploadDocumentFile(file);
       console.log('[EditorPlanilha] 💾 Upload OK:', up);
-      await erpService.updateDocument(doc.id, {
-        arquivoUrl: up.url,
-        arquivoNome: savedNameRef.current,
-        arquivoTamanho: up.size,
-        arquivoTipo: spreadsheetMime(format),
-      });
-      console.log('[EditorPlanilha] ✅ Documento atualizado no banco');
-      toast({ title: 'Planilha salva', description: `${savedNameRef.current} atualizado com sucesso.` });
+      if (fileId) {
+        // Arquivo da sub-pasta: sobe a nova versão e remove a antiga.
+        const novo = await erpService.uploadDocumentFile(doc.id, file);
+        try { await erpService.deleteDocumentFile(doc.id, fileId); } catch { /* já substituído */ }
+        console.log('[EditorPlanilha] ✅ Arquivo da sub-pasta atualizado:', novo.id);
+        toast({ title: 'Planilha salva', description: `${savedNameRef.current} atualizado com sucesso.` });
+      } else {
+        await erpService.updateDocument(doc.id, {
+          arquivoUrl: up.url,
+          arquivoNome: savedNameRef.current,
+          arquivoTamanho: up.size,
+          arquivoTipo: spreadsheetMime(format),
+        });
+        console.log('[EditorPlanilha] ✅ Documento atualizado no banco');
+        toast({ title: 'Planilha salva', description: `${savedNameRef.current} atualizado com sucesso.` });
+      }
       navigate('/erp/documentos');
     } catch (e: any) {
       console.error('[EditorPlanilha] ❌ Erro ao salvar:', e);

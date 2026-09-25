@@ -1,7 +1,6 @@
-import React from 'react';
-import { Button } from '@/components/ui/button';
-import { LayoutGrid, List } from 'lucide-react';
-import type { ViewMode } from './ExplorerToolbar';
+﻿import React from 'react';
+import ViewModeToggle from './ViewModeToggle';
+import type { IconSize, ViewMode } from './types';
 
 interface Props {
   /** Total de itens visíveis (pastas + documentos) na página atual. */
@@ -11,10 +10,14 @@ interface Props {
   selectedCount: number;
   viewMode: ViewMode;
   onViewMode: (m: ViewMode) => void;
+  iconSize: IconSize;
+  onIconSize: (s: IconSize) => void;
 }
 
 /** Barra de status estilo Explorer: "X itens · Y selecionados" + exibir à direita. */
-const ExplorerStatusBar: React.FC<Props> = ({ totalDocs, folderCount, selectedCount, viewMode, onViewMode }) => {
+const ExplorerStatusBar: React.FC<Props> = ({
+  totalDocs, folderCount, selectedCount, viewMode, onViewMode, iconSize, onIconSize,
+}) => {
   const total = totalDocs + folderCount;
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border bg-white px-3 py-1.5 text-xs text-slate-600">
@@ -26,20 +29,15 @@ const ExplorerStatusBar: React.FC<Props> = ({ totalDocs, folderCount, selectedCo
           <span className="text-slate-400"> · {folderCount} pasta{folderCount === 1 ? '' : 's'}</span>
         )}
       </span>
-      <div className="flex items-center gap-1 shrink-0">
-        <span className="hidden sm:inline text-slate-400 mr-1">Exibir</span>
-        <Button
-          size="icon" variant={viewMode === 'details' ? 'secondary' : 'ghost'}
-          className="h-6 w-6" title="Detalhes" onClick={() => onViewMode('details')}
-        >
-          <List className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="icon" variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
-          className="h-6 w-6" title="Ícones" onClick={() => onViewMode('grid')}
-        >
-          <LayoutGrid className="h-3.5 w-3.5" />
-        </Button>
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="hidden sm:inline text-slate-400">Exibir</span>
+        <ViewModeToggle
+          size="sm"
+          viewMode={viewMode}
+          onViewMode={onViewMode}
+          iconSize={iconSize}
+          onIconSize={onIconSize}
+        />
       </div>
     </div>
   );
