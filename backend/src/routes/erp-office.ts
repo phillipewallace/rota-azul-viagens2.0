@@ -40,8 +40,14 @@ const str = (v: any): string | null => {
 
 function backendPublicUrl(req: Request): string {
   const envUrl = process.env.PUBLIC_BASE_URL;
-  if (envUrl) return envUrl.replace(/\/$/, '');
-  const host = req.get('host') || 'localhost:3001';
+  // Domínios de preview (ex.: *.lovableproject.com, *.vercel.app) só existem
+  // durante o preview. Se o .env ficou apontando para um deles, o OnlyOffice
+  // tenta baixar o arquivo e devolver o salvamento num host que não existe em
+  // produção — por isso caímos para o host da própria requisição.
+  if (envUrl && !/(\.lovableproject\.com|\.vercel\.app|\.netlify\.app|localhost)/i.test(envUrl)) {
+    return envUrl.replace(/\/$/, '');
+  }
+  const host = req.get('host') || 'localhost:3002';
   const proto = (req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http')) as string;
   return `${proto}://${host}`;
 }

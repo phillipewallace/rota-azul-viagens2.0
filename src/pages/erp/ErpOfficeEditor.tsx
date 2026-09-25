@@ -63,6 +63,12 @@ function loadOnlyOfficeApi(serverUrl: string): Promise<any> {
 const ErpOfficeEditor: React.FC = () => {
   const { id = '' } = useParams();
   const navigate = useNavigate();
+  /**
+   * Volta um passo no histórico em vez de reescrever a URL: usar
+   * navigate('/erp/documentos') empilhava documentos → editor → documentos e
+   * fazia o botão "voltar" do navegador alternar entre as duas páginas.
+   */
+  const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/erp/documentos'));
   const { toast } = useToast();
 
   const [doc, setDoc] = useState<ErpDocument | null>(null);
@@ -117,6 +123,15 @@ const ErpOfficeEditor: React.FC = () => {
         });
       } catch (e: any) {
         setConfig({ enabled: false, serverUrl: '' });
+        // A causa quase sempre é o Document Server não estar instalado/rodando
+        // no servidor — a URL configurada é só um placeholder e o script api.js
+        // nunca carrega. Dizer isso evita a caça ao fantasma.
+        setError(
+          `Não foi possível carregar o OnlyOffice (${config?.serverUrl || 'URL não configurada'}).\n\n`
+          + 'O Document Server precisa estar instalado e no ar; a URL em '
+          + 'ONLYOFFICE_PUBLIC_URL deve apontar para ele. Enquanto isso, use '
+          + '"Reenviar arquivo" para atualizar a versão.',
+        );
         toast({
           title: 'OnlyOffice indisponível',
           description: e?.message || 'Exibindo o modo de visualização.',

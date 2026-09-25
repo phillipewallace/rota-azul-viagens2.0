@@ -46,6 +46,65 @@ async function uploadDocumentFile(file: File): Promise<{ url: string; size: numb
   return { url: data.url, size: Number(data.size) || file.size };
 }
 
+/** Largura/altura padrão das células (em px) quando o auto-fit não se aplica. */
+const DEFAULT_COL_WIDTH = 88;
+const DEFAULT_ROW_HEIGHT = 24;
+const MIN_COL_WIDTH = 60;
+const MAX_COL_WIDTH = 320;
+/** Largura média de um caractere na fonte padrão do Univer (~11px). */
+const CHAR_PX = 6.6;
+
+/**
+ * Auto-ajusta as larguras de todas as abas, como se o usuário tivesse clicado
+ * duas vezes na borda de cada coluna: mede o maior conteúdo de cada coluna e
+ * define a largura necessária (+ folga para o cursor de edição).
+ *
+ * O Univer nasce com colunas compactadas (73px), o que corta o texto e vira
+ * "####" nos números — daí a necessidade de aplicar isso logo após criar a
+ * unidade, quando o workbook já existe.
+ */
+function autoFitColumns(fwb: any): void {
+  if (!fwb?.getSheets) return;
+  for (const ws of fwb.getSheets()) {
+    const rows = Math.min(ws.getMaxRows?.() ?? 0, 2000);
+    const cols = Math.min(ws.getMaxColumns?.() ?? 0, 120);
+    if (!rows || !cols) continue;
+
+    const grid: string[][] = Array.from({ length: rows }, () => new Array(cols).fill(''));
+    try {
+      const range = ws.getRange(0, 0, rows, cols);
+      const values = (range?.getValues?.() ?? []) as unknown[][];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const v = values[r]?.[c];
+          if (v == null) continue;
+          const txt = typeof v === 'object'
+            ? String((v as any).v ?? (v as any).w ?? '')
+            : String(v);
+          if (txt) grid[r][c] = txt;
+        }
+      }
+    } catch {
+      continue;
+    }
+
+    for (let c = 0; c < cols; c++) {
+      let longest = 0;
+      for (let r = 0; r < rows; r++) {
+        const len = (grid[r][c] || '').length;
+        if (len > longest) longest = len;
+      }
+      const width = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, Math.ceil(longest * CHAR_PX) + 14));
+      ws.setColumnWidth?.(c, c, width);
+    }
+    // Altura comfortavel para o texto nao ficar cortado verticalmente.
+    for (let r = 0; r < rows; r++) ws.setRowHeight?.(r, r, DEFAULT_ROW_HEIGHT);
+  }
+  // Reforca o padrao para as colunas que ainda nao existem na grade.
+  try { fwb.setDefaultColumnWidth?.(DEFAULT_COL_WIDTH); } catch { /* noop */ }
+  try { fwb.setDefaultRowHeight?.(DEFAULT_ROW_HEIGHT); } catch { /* noop */ }
+}
+
 const ErpDocumentEditor: React.FC = () => {
   const { id = '' } = useParams();
   // `?fileId=` = edita um arquivo específico dentro da sub-pasta do documento.
@@ -53,6 +112,12 @@ const ErpDocumentEditor: React.FC = () => {
   const [params] = useSearchParams();
   const fileId = params.get('fileId') || '';
   const navigate = useNavigate();
+  /**
+   * Volta um passo no histórico em vez de reescrever a URL: usar
+   * navigate('/erp/documentos') empilhava documentos → editor → documentos e
+   * fazia o botão "voltar" do navegador alternar entre as duas páginas.
+   */
+  const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate('/erp/documentos'));
   const { toast } = useToast();
 
   const [doc, setDoc] = useState<ErpDocument | null>(null);
@@ -110,6 +175,7 @@ const ErpDocumentEditor: React.FC = () => {
           ],
         });
         univerInstance = univer;
+
         univerRef.current = univer;
         apiRef.current = univerAPI;
 
@@ -132,6 +198,21 @@ const ErpDocumentEditor: React.FC = () => {
             ]),
           ),
         } as any);
+
+        // Auto-ajuste das colunas: só funciona agora, com o workbook criado.
+        const fwb = (univerAPI as any).getActiveWorkbook?.();
+        autoFitColumns(fwb);
+        // O Univer hidrata a unidade de forma assíncrona; se ainda não houver
+        // workbook, reaplicamos assim que ele aparecer.
+        if (!fwb) {
+          const t = setInterval(() => {
+            const wb = (univerAPI as any).getActiveWorkbook?.();
+            if (!wb) return;
+            clearInterval(t);
+            autoFitColumns(wb);
+          }, 120);
+          setTimeout(() => clearInterval(t), 4000);
+        }
       } catch (e: any) {
         if (!cancelled) setError(e?.message || 'Erro ao abrir a planilha.');
       } finally {
@@ -245,19 +326,23 @@ const ErpDocumentEditor: React.FC = () => {
       const M = { left: 24, right: 24, top: 64, bottom: 44 };
       const usableW = pageW - M.left - M.right;
 
-      // Largura por coluna proporcional ao conteúdo: sem isso o autoTable
-      // divide a largura em partes iguais e as colunas com texto longo
-      // estouram, empurrando linhas para fora da página.
+      // Largura por coluna: usa a largura REAL definida no editor (o auto-ajuste
+      // aplicado ao abrir) e so completa com a medicao do conteudo. Assim o PDF
+      // cai exatamente nas mesmas colunas da tela; sozinho, o autoTable dividiria
+      // a area util em partes iguais e estouraria as colunas de texto longo.
       const MIN_COL = 46;
       const weights = Array.from({ length: colCount }, (_, c) => {
         let max = 6;
         for (const r of table) max = Math.max(max, (r[c] || '').length);
-        // Comprime a razão para que uma célula gigante não dominie a página.
-        return Math.min(max, 46);
+        // Largura de tela da coluna (px) convertida para "caracteres".
+        let screen = 0;
+        try { screen = ws.getColumnWidth?.(c) ?? 0; } catch { screen = 0; }
+        // Se a coluna tem largura definida na tela, ela manda: e o que o usuario ve.
+        return screen > 0 ? Math.max(6, screen / CHAR_PX) : Math.min(max, 46);
       });
       const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
       let colWidths = weights.map((w) => (usableW * w) / weightSum);
-      // Respeita a largura mínima e redistribui a sobra proporcionalmente.
+      // Respeita a largura minima e redistribui a sobra proporcionalmente.
       const deficit = colWidths.reduce((a, w) => a + Math.max(0, MIN_COL - w), 0);
       if (deficit > 0) {
         const shrink = weights.map((w, i) => w - (Math.max(0, MIN_COL - colWidths[i]) / weightSum));
@@ -346,7 +431,7 @@ const ErpDocumentEditor: React.FC = () => {
       {/* Barra superior */}
       <header className="flex items-center justify-between gap-3 px-4 md:px-6 py-3 bg-white border-b border-slate-200 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/erp/documentos')} title="Voltar">
+          <Button variant="ghost" size="icon" onClick={() => goBack()} title="Voltar">
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <FileSpreadsheet className="h-5 w-5 text-emerald-600 shrink-0" />

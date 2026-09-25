@@ -244,8 +244,12 @@ const ErpDocuments: React.FC = () => {
 
   // ── Explorer: pastas, navegação, visualização, seleção e ordenação ────────
   const [folders, setFolders] = useState<ErpFolder[]>([]);
-  /** 'root' = documentos sem pasta; senão o id da pasta aberta. */
-  const [currentFolder, setCurrentFolder] = useState<string>('root');
+  /** 'root' = documentos sem pasta; senão o id da pasta aberta.
+   *  Persistida em localStorage: ao abrir um arquivo e voltar, a página
+   *  retorna para a mesma pasta em vez de voltar para a raiz. */
+  const [currentFolder, setCurrentFolder] = useState<string>(() => {
+    try { return localStorage.getItem('erp-docs-folder') || 'root'; } catch { return 'root'; }
+  });
   const [viewMode, setViewMode] = useState<ViewMode>(readPref('view', VIEW_MODES, 'details'));
   const [iconSize, setIconSize] = useState<IconSize>(readPref('icons', ICON_SIZES, 'md'));
   const [sortKey, setSortKey] = useState<string>('data');
@@ -877,6 +881,17 @@ const ErpDocuments: React.FC = () => {
     const route = SPREADSHEET_EXTS.includes(ext) ? 'editar' : 'office';
     navigate(`/erp/documentos/${d.id}/${route}`);
   };
+
+  useEffect(() => {
+    try { localStorage.setItem('erp-docs-folder', currentFolder); } catch { /* modo privado */ }
+  }, [currentFolder]);
+
+  // Ao voltar de um editor, o histórico deve começar na pasta restaurada.
+  useEffect(() => {
+    setNavHistory([currentFolder]);
+    setNavIdx(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Explorer: navegação, ordenação, seleção, menu de contexto, mover ──────
 
