@@ -903,8 +903,13 @@ const ErpDocuments: React.FC = () => {
     // pasta nova tiver 1 página, a consulta voltaria vazia (aí parece que a
     // pasta "não entrou" e só um F5 resolvia).
     setPage(1);
+    // Sair da busca ao entrar numa pasta. Sem isso a busca continuava ativa,
+    // o `load` ignorava o folderId (varrendo todas as pastas) e a tela seguia
+    // mostrando os resultados — parecendo que o clique não fez nada.
     if (!opts?.fromHistory) {
       // Corta o "avançar" e anexa o novo destino ao histórico.
+      setQ('');
+      setQDebounced('');
       setNavHistory((h) => [...h.slice(0, navIdx + 1), id]);
       setNavIdx((i) => i + 1);
     }
