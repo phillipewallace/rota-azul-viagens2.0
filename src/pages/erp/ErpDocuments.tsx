@@ -899,6 +899,10 @@ const ErpDocuments: React.FC = () => {
     setCurrentFolder(id);
     setSelectedIds(new Set());
     setCtxMenu(null);
+    // Zera a página junto com a troca de pasta: se ficasse na página 3 e a
+    // pasta nova tiver 1 página, a consulta voltaria vazia (aí parece que a
+    // pasta "não entrou" e só um F5 resolvia).
+    setPage(1);
     if (!opts?.fromHistory) {
       // Corta o "avançar" e anexa o novo destino ao histórico.
       setNavHistory((h) => [...h.slice(0, navIdx + 1), id]);
