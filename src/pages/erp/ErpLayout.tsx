@@ -8,6 +8,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, ClipboardList, Users, Boxes, Building2,
   ExternalLink, AlertTriangle, ArrowLeft, Sparkles, DollarSign, FileSignature, LogOut, Files, FolderOpen,
+  MapPin,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import { confirmDialog } from '@/lib/confirm';
 const navItems = [
   { to: '/erp', label: 'Painel', icon: LayoutDashboard, end: true },
   { to: '/erp/orcamentos', label: 'Orçamentos', icon: FileText },
+  { to: '/erp/rotas', label: 'Rotas', icon: MapPin },
   { to: '/erp/ordens-servico', label: 'Ordens de Serviço', icon: ClipboardList, badge: 'overdue' as const },
   { to: '/erp/contratos', label: 'Contratos', icon: FileSignature },
   { to: '/erp/assinatura', label: 'Assinatura', icon: FileSignature },
