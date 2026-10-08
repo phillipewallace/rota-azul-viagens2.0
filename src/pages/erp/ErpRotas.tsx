@@ -1,1 +1,171 @@
-/**\n * Página principal da aba "Rotas" no ERP.\n * Exibe a lista de rotas como cards, com expansão para detalhes,\n * adição/edição/exclusão, reordenação e geração de PDF.\n */\nimport React, { useState, useCallback } from 'react';\nimport { Plus, FileDown, Edit, Trash2, PlusCircle, LayoutDashboard } from 'lucide-react';\nimport { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';\nimport { Button } from '@/components/ui/button';\nimport { Badge } from '@/components/ui/badge';\nimport { Input } from '@/components/ui/input';\nimport { Textarea } from '@/components/ui/textarea';\nimport { Rota } from '@/types/rota';\nimport { useRotas } from '@/hooks/useRotas';\nimport ErpRotaCard from '@/components/erp/ErpRotaCard';\nimport ErpRotaForm from '@/components/erp/ErpRotaForm';\nimport { rotaPdfGenerator } from '@/utils/rotasPdf';\nimport { toast } from 'sonner';\n\nconst ErpRotas: React.FC = () => {\n  const { routes, loading, error, createRoute, updateRoute, deleteRoute, moveRoute } = useRotas();\n  const [expandedId, setExpandedId] = useState<string | null>(null);\n  const [isFormOpen, setIsFormOpen] = useState(false);\n  const [editingRota, setEditingRota] = useState<Rota | null>(null);\n  const [isDeleting, setIsDeleting] = useState<string | null>(null);\n  const [search, setSearch] = useState('');\n  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);\n\n  // Filtro de busca\n  const filteredRoutes = routes.filter((r) =>\n    r.name.toLowerCase().includes(search.toLowerCase()) ||\n    r.company.toLowerCase().includes(search.toLowerCase()) ||\n    r.address.toLowerCase().includes(search.toLowerCase())\n  );\n\n  // Abrir modal de novo\n  const handleNew = () => {\n    setEditingRota(null);\n    setIsFormOpen(true);\n  };\n\n  // Abrir modal de edição\n  const handleEdit = (rota: Rota) => {\n    setEditingRota(rota);\n    setIsFormOpen(true);\n  };\n\n  // Salvar rota\n  const handleSave = async (data: Omit<Rota, 'id' | 'createdAt' | 'updatedAt'>) => {\n    if (editingRota) {\n      await updateRoute(editingRota.id, data);\n    } else {\n      await createRoute(data);\n    }\n  };\n\n  // Excluir rota\n  const handleDelete = async (id: string) => {\n    setIsDeleting(id);\n    try {\n      await deleteRoute(id);\n      toast.success('Rota excluída com sucesso!');\n    } catch (err: any) {\n      toast.error(err.message || 'Erro ao excluir rota');\n    } finally {\n      setIsDeleting(null);\n    }\n  };\n\n  // Alternar expansão do card\n  const handleToggle = (id: string) => {\n    setExpandedId(expandedId === id ? null : id);\n  };\n\n  // Mover rota\n  const handleMove = (id: string, direction: 'up' | 'down') => {\n    try {\n      moveRoute(id, direction);\n      toast.success(`Rota movida para ${direction === 'up' ? 'cima' : 'baixo'}`);\n    } catch (err: any) {\n      toast.error(err.message || 'Erro ao mover rota');\n    }\n  };\n\n  // Gerar PDF\n  const handleGeneratePdf = async (rota: Rota) => {\n    try {\n      setIsGeneratingPdf(true);\n      rotaPdfGenerator.generateRotaPdf(rota, 'Rota de Entrega');\n      toast.success('PDF gerado com sucesso!');\n    } catch (err: any) {\n      toast.error(err.message || 'Erro ao gerar PDF');\n    } finally {\n      setIsGeneratingPdf(false);\n    }\n  };\n\n  return (\n    <div className=\"p-4 md:p-8 max-w-7xl mx-auto\">\n      {/* Cabeçalho */}\n      <div className=\"flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6\">\n        <div>\n          <h1 className=\"text-2xl font-bold text-slate-900\">Rotas</h1>\n          <p className=\"text-slate-500 text-sm mt-1\">\n            Gerencie as rotas de entrega/limpeza com detalhes completos.\n          </p>\n        </div>\n        <div className=\"flex items-center gap-2\">\n          <div className=\"relative flex-1 sm:max-w-xs\">\n            <Input\n              placeholder=\"Buscar rota...\"\n              value={search}\n              onChange={(e) => setSearch(e.target.value)}\n              className=\"w-full pl-8\"\n            />\n            <div className=\"absolute left-2 top-1/2 -translate-y-1/2 text-slate-400\">\n              <LayoutDashboard className=\"h-4 w-4\" />\n            </div>\n          </div>\n          <Button\n            onClick={handleNew}\n            className=\"bg-gradient-to-r from-primary to-primary-700 hover:from-primary/90 hover:to-primary-600\"\n          >\n            <PlusCircle className=\"h-4 w-4 mr-2\" /> Nova Rota\n          </Button>\n        </div>\n      </div>\n\n      {/* Mensagem de carregamento */}\n      {loading && routes.length === 0 ? (\n        <div className=\"flex items-center justify-center py-12\">\n          <div className=\"text-slate-400\">Carregando rotas...</div>\n        </div>\n      ) : error ? (\n        <div className=\"bg-destructive/10 border border-destructive/30 rounded-lg p-4\">\n          <p className=\"text-destructive text-sm\">{error}</p>\n        </div>\n      ) : filteredRoutes.length === 0 ? (\n        <div className=\"text-center py-12\">\n          <p className=\"text-slate-400\">Nenhuma rota encontrada</p>\n        </div>\n      ) : (\n        <div className=\"space-y-4\">\n          {filteredRoutes.map((rota) => (\n            <ErpRotaCard\n              key={rota.id}\n              rota={rota}\n              expanded={expandedId === rota.id}\n              onToggle={() => handleToggle(rota.id)}\n              onEdit={handleEdit}\n              onDelete={handleDelete}\n              onMove={handleMove}\n            />\n          ))}\n        </div>\n      )\n      }\n\n      {/* Modal de formulário */}\n      <ErpRotaForm\n        open={isFormOpen}\n        onOpenChange={setIsFormOpen}\n        rota={editingRota}\n        onSave={handleSave}\n        isLoading={false}\n      />\n    </div>\n  );\n};\n\nexport default ErpRotas;
+/**
+ * Página principal da aba "Rotas" no ERP.
+ * Exibe a lista de rotas como cards, com expansão para detalhes,
+ * adição/edição/exclusão, reordenação e geração de PDF.
+ */
+import React, { useState, useCallback } from 'react';
+import { Plus, FileDown, Edit, Trash2, PlusCircle, LayoutDashboard } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Rota } from '@/types/rota';
+import { useRotas } from '@/hooks/useRotas';
+import ErpRotaCard from '@/components/erp/ErpRotaCard';
+import ErpRotaForm from '@/components/erp/ErpRotaForm';
+import { rotaPdfGenerator } from '@/utils/rotasPdf';
+import { toast } from 'sonner';
+
+const ErpRotas: React.FC = () => {
+  const { routes, loading, error, createRoute, updateRoute, deleteRoute, moveRoute } = useRotas();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingRota, setEditingRota] = useState<Rota | null>(null);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  // Filtro de busca
+  const filteredRoutes = routes.filter((r) =>
+    r.name.toLowerCase().includes(search.toLowerCase()) ||
+    r.company.toLowerCase().includes(search.toLowerCase()) ||
+    r.address.toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Abrir modal de novo
+  const handleNew = () => {
+    setEditingRota(null);
+    setIsFormOpen(true);
+  };
+
+  // Abrir modal de edição
+  const handleEdit = (rota: Rota) => {
+    setEditingRota(rota);
+    setIsFormOpen(true);
+  };
+
+  // Salvar rota
+  const handleSave = async (data: Omit<Rota, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (editingRota) {
+      await updateRoute(editingRota.id, data);
+    } else {
+      await createRoute(data);
+    }
+  };
+
+  // Excluir rota
+  const handleDelete = async (id: string) => {
+    setIsDeleting(id);
+    try {
+      await deleteRoute(id);
+      toast.success('Rota excluída com sucesso!');
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao excluir rota');
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
+  // Alternar expansão do card
+  const handleToggle = (id: string) => {
+    setExpandedId(expandedId === id ? null : id);
+  };
+
+  // Mover rota
+  const handleMove = (id: string, direction: 'up' | 'down') => {
+    try {
+      moveRoute(id, direction);
+      toast.success(`Rota movida para ${direction === 'up' ? 'cima' : 'baixo'}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao mover rota');
+    }
+  };
+
+  // Gerar PDF
+  const handleGeneratePdf = async (rota: Rota) => {
+    try {
+      setIsGeneratingPdf(true);
+      rotaPdfGenerator.generateRotaPdf(rota, 'Rota de Entrega');
+      toast.success('PDF gerado com sucesso!');
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao gerar PDF');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  return (
+    <div className="p-4 md:p-8 max-w-7xl mx-auto">
+      {/* Cabeçalho */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Rotas</h1>
+          <p className="text-slate-500 text-sm mt-1">
+            Gerencie as rotas de entrega/limpeza com detalhes completos.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 sm:max-w-xs">
+            <Input
+              placeholder="Buscar rota..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-8"
+            />
+            <div className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400">
+              <LayoutDashboard className="h-4 w-4" />
+            </div>
+          </div>
+          <Button
+            onClick={handleNew}
+            className="bg-gradient-to-r from-primary to-primary-700 hover:from-primary/90 hover:to-primary-600"
+          >
+            <PlusCircle className="h-4 w-4 mr-2" /> Nova Rota
+          </Button>
+        </div>
+      </div>
+
+      {/* Mensagem de carregamento */}
+      {loading && routes.length === 0 ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-slate-400">Carregando rotas...</div>
+        </div>
+      ) : error ? (
+        <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4">
+          <p className="text-destructive text-sm">{error}</p>
+        </div>
+      ) : filteredRoutes.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-slate-400">Nenhuma rota encontrada</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredRoutes.map((rota) => (
+            <ErpRotaCard
+              key={rota.id}
+              rota={rota}
+              expanded={expandedId === rota.id}
+              onToggle={() => handleToggle(rota.id)}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onMove={handleMove}
+            />
+          ))}
+        </div>
+      )
+      }
+
+      {/* Modal de formulário */}
+      <ErpRotaForm
+        open={isFormOpen}
+        onOpenChange={setIsFormOpen}
+        rota={editingRota}
+        onSave={handleSave}
+        isLoading={false}
+      />
+    </div>
+  );
+};
+
+export default ErpRotas;

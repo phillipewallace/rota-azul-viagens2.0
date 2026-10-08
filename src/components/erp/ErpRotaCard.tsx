@@ -1,5 +1,112 @@
-/**\n * Componente de Card de Rota para o ERP.\n * Exibe os dados de uma rota em formato de card, com expansão para mostrar detalhes.\n */\nimport React from 'react';\nimport { Rota } from '@/types/rota';\nimport {\n  MapPin, Building2, WashingMachine, Phone, FileText,\n  Bathroom, CircleDot, Droplets, Edit, Trash2, ChevronDown,\n  ChevronRight, ArrowUp, ArrowDown, XCircle\n} from 'lucide-react';\nimport { Button } from '@/components/ui/button';\nimport { Badge } from '@/components/ui/badge';\n\ninterface ErpRotaCardProps {\n  rota: Rota;\n  expanded: boolean;\n  onToggle: () => void;\n  onEdit: (rota: Rota) => void;\n  onDelete: (id: string) => void;\n  onMove: (id: string, direction: 'up' | 'down') => void;\n}\n
+/**
+ * Componente de Card de Rota para o ERP.
+ * Exibe os dados de uma rota em formato de card, com expansão para mostrar detalhes.
+ */
+import React from 'react';
+import { Rota } from '@/types/rota';
+import {
+  MapPin, Building2, WashingMachine, Phone, FileText,
+  Bath, CircleDot, Droplets, Edit, Trash2, ChevronDown,
+  ChevronRight, ArrowUp, ArrowDown, XCircle
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
+interface ErpRotaCardProps {
+  rota: Rota;
+  expanded: boolean;
+  onToggle: () => void;
+  onEdit: (rota: Rota) => void;
+  onDelete: (id: string) => void;
+  onMove: (id: string, direction: 'up' | 'down') => void;
+}
+
+const ErpRotaCard: React.FC<ErpRotaCardProps> = ({
+  rota,
+  expanded,
+  onToggle,
+  onEdit,
+  onDelete,
+  onMove,
+}) => {
+
+  const statusColor = {
+    ativa: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    inativa: 'bg-amber-100 text-amber-800 border-amber-200',
+    concluida: 'bg-blue-100 text-blue-800 border-blue-200',
+  } as const;
+
+  const nameColor = {
+    ativa: 'from-emerald-500 to-emerald-600',
+    inativa: 'from-amber-500 to-amber-600',
+    concluida: 'from-blue-500 to-blue-600',
+  } as const;
+
+  const statusLabel = rota.status === 'ativa' ? 'Ativa' :
+    rota.status === 'inativa' ? 'Inativa' : 'Concluída';
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
+      <div className="cursor-pointer select-none" onClick={onToggle}>
+        <div className="h-28 bg-gradient-to-br p-4 md:p-5 flex items-center justify-center">
+          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${nameColor[rota.status]} flex items-center justify-center text-white shadow-lg`}>
+            <MapPin className="h-7 w-7" />
+          </div>
+        </div>
+
+        <div className="p-4 md:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <h3 className="text-lg font-bold text-slate-900 truncate" title={rota.name}>
+                {rota.name}
+              </h3>
+              <p className="text-sm text-slate-500 mt-0.5 flex items-center gap-1.5 truncate">
+                <Building2 className="h-4 w-4" />
+                {rota.company}
+              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <Badge className={`border ${statusColor[rota.status]}`}>
+                  {statusLabel}
+                </Badge>
+                <span className="text-xs text-slate-400 hidden sm:inline">
+                  | criada em {new Date(rota.createdAt).toLocaleDateString('pt-BR')}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => { e.stopPropagation(); onEdit(rota); }}
+                className="h-8 w-8 p-0"
+                aria-label="Editar rota"
+              >
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => { e.stopPropagation(); onDelete(rota.id); }}
+                className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
+                aria-label="Excluir rota"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center text-slate-600 text-sm">
+            <MapPin className="h-4 w-4 text-slate-400" />
+            <span className="font-medium text-slate-800 truncate ml-1" title={rota.address}>
+              {rota.address}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="px-4 md:px-5 pb-5 border-t border-slate-100 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
               <div className="p-2 bg-primary/10 rounded-lg">
@@ -13,7 +120,7 @@
 
             <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
               <div className="p-2 bg-emerald-100 rounded-lg">
-                <Bathroom className="h-5 w-5 text-emerald-600" />
+                <Bath className="h-5 w-5 text-emerald-600" />
               </div>
               <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Banheiros</p>
@@ -114,82 +221,3 @@
 };
 
 export default ErpRotaCard;
-
-  const statusColor = {
-    ativa: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    inativa: 'bg-amber-100 text-amber-800 border-amber-200',
-    concluida: 'bg-blue-100 text-blue-800 border-blue-200',
-  } as const;
-
-  const nameColor = {
-    ativa: 'from-emerald-500 to-emerald-600',
-    inativa: 'from-amber-500 to-amber-600',
-    concluida: 'from-blue-500 to-blue-600',
-  } as const;
-
-  const statusLabel = rota.status === 'ativa' ? 'Ativa' :
-    rota.status === 'inativa' ? 'Inativa' : 'Concluída';
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-      <div className="cursor-pointer select-none" onClick={onToggle}>
-        <div className="h-28 bg-gradient-to-br p-4 md:p-5 flex items-center justify-center">
-          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${nameColor[rota.status]} flex items-center justify-center text-white shadow-lg`}>
-            <MapPin className="h-7 w-7" />
-          </div>
-        </div>
-
-        <div className="p-4 md:p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-bold text-slate-900 truncate" title={rota.name}>
-                {rota.name}
-              </h3>
-              <p className="text-sm text-slate-500 mt-0.5 flex items-center gap-1.5 truncate">
-                <Building2 className="h-4 w-4" />
-                {rota.company}
-              </p>
-              <div className="flex items-center gap-2 mt-1.5">
-                <Badge className={`border ${statusColor[rota.status]}`}>
-                  {statusLabel}
-                </Badge>
-                <span className="text-xs text-slate-400 hidden sm:inline">
-                  | criada em {new Date(rota.createdAt).toLocaleDateString('pt-BR')}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => { e.stopPropagation(); onEdit(rota); }}
-                className="h-8 w-8 p-0"
-                aria-label="Editar rota"
-              >
-                <Edit className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => { e.stopPropagation(); onDelete(rota.id); }}
-                className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
-                aria-label="Excluir rota"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-3 flex items-center text-slate-600 text-sm">
-            <MapPin className="h-4 w-4 text-slate-400" />
-            <span className="font-medium text-slate-800 truncate ml-1" title={rota.address}>
-              {rota.address}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="px-4 md:px-5 pb-5 border-t border-slate-100 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-<new content to append>
