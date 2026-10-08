@@ -1,5 +1,7 @@
-import { Rota, validateRota, normalizeRota } from '@/types/rota';
-import { BaseApiService } from './base';
+import {
+  Rota, Ponto, RotaStatus,
+  validateRota, validatePonto, normalizeRota, normalizePonto, generateId,
+} from '@/types/rota';
 
 interface LocalStorageRota extends Rota {
   sortOrder: number; // Para manter a ordem de exibição
@@ -7,152 +9,196 @@ interface LocalStorageRota extends Rota {
 
 const STORAGE_KEY = 'erp_rotaas_routes';
 
-export class RotasService extends BaseApiService {
-  // CRUD sincronizado com localStorage (com fallback para API se disponível)
+/**
+ * Migrar registro do formato antigo (rota única = uma parada com empresa/endereço)
+ * para o novo formato (rota = card com lista de pontos).
+ */
+const migrateLegacyRota = (raw: any): LocalStorageRota => {
+  // Já está no formato novo
+  if (Array.isArray(raw?.pontos)) {
+    return { ...normalizeRota(raw), sortOrder: raw.sortOrder ?? 0 };
+  }
 
+  const legacy = raw || {};
+  return {
+    ...normalizeRota({
+      id: legacy.id,
+      name: legacy.name || 'Rota sem nome',
+      status: legacy.status as RotaStatus,
+      createdAt: legacy.createdAt,
+      updatedAt: legacy.updatedAt,
+      pontos: [{
+        company: legacy.company || '',
+        address: legacy.address || '',
+        cleaning: legacy.cleaning || '',
+        bathrooms: legacy.bathrooms || '',
+        contact: legacy.contact || '',
+        observation: legacy.observation || '',
+        sanitarioNumber: legacy.sanitarioNumber || '',
+        model: legacy.model || '',
+        color: legacy.color || '',
+      }],
+    }),
+    sortOrder: legacy.sortOrder ?? 0,
+  };
+};
+
+/**
+ * Persistência das rotas exclusivamente em localStorage.
+ * O backend NÃO possui endpoint /rotas — qualquer chamada retorna 404,
+ * por isso não há nenhuma chamada de API neste serviço.
+ */
+export class RotasService {
   async getRoutes(): Promise<Rota[]> {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as LocalStorageRota[];
-        // Ordenar pela ordem de exibição
-        return parsed
-          .map((r) => normalizeRota(r))
-          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-      }
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map(migrateLegacyRota)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     } catch (error) {
       console.error('Erro ao ler rotas do localStorage:', error);
-    }
-
-    // Fallback: tentar API REST
-    try {
-      return this.request<Rota[]>('/rotas');
-    } catch (error) {
-      console.error('Erro ao buscar rotas da API:', error);
       return [];
     }
   }
 
-  async createRoute(rota: Omit<Rota, 'id' | 'createdAt' | 'updatedAt'>): Promise<Rota> {
-    // Validação do formulário
-    const normalized = normalizeRota(rota);
-    const validation = validateRota(normalized);
-    if (!validation.valid) {
-      const errors = validation.errors.join(', ');
-      throw new Error(errors);
-    }
+  async createRoute(data: { name: string; status?: RotaStatus }): Promise<Rota> {
+    const validation = validateRota(data);
+    if (!validation.valid) throw new Error(validation.errors.join(', '));
 
-    const newRota: Rota = {
-      ...normalized,
-      id: `rota-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
+    const newRota: LocalStorageRota = {
+      ...normalizeRota({ name: data.name.trim(), status: data.status || 'ativa' }),
+      sortOrder: routes.length,
     };
-
-    try {
-      // Tenta API first
-      const result = await this.request<Rota>('/rotas', {
-        method: 'POST',
-        body: JSON.stringify(newRota),
-      });
-      // Atualiza localStorage
-      await this._saveToStorage();
-      return result;
-    } catch (error) {
-      console.error('Erro na API, salvando no localStorage:', error);
-      await this._saveToStorage(newRota);
-      return newRota;
-    }
+    routes.push(newRota);
+    await this._saveToStorage(routes);
+    return newRota;
   }
 
-  async updateRoute(id: string, rota: Partial<Rota>): Promise<Rota> {
-    const normalized = normalizeRota(rota);
-    const validation = validateRota(normalized);
-    if (!validation.valid) {
-      const errors = validation.errors.join(', ');
-      throw new Error(errors);
-    }
+  async updateRoute(id: string, data: Partial<Rota>): Promise<Rota> {
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
+    const index = routes.findIndex((r) => r.id === id);
+    if (index === -1) throw new Error('Rota não encontrada');
 
-    const updated: Rota = {
-      ...normalized,
+    const updated = normalizeRota({
+      ...routes[index],
+      ...data,
       id,
       updatedAt: new Date().toISOString(),
-    };
+    });
+    const validation = validateRota(updated);
+    if (!validation.valid) throw new Error(validation.errors.join(', '));
 
-    try {
-      const result = await this.request<Rota>(`/rotas/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(updated),
-      });
-      await this._saveToStorage();
-      return result;
-    } catch (error) {
-      console.error('Erro na API, atualizando localStorage:', error);
-      await this._updateInStorage(id, updated);
-      return updated;
-    }
+    routes[index] = { ...updated, sortOrder: routes[index].sortOrder };
+    await this._saveToStorage(routes);
+    return routes[index];
   }
 
   async deleteRoute(id: string): Promise<void> {
-    try {
-      await this.request<void>(`/rotas/${id}`, { method: 'DELETE' });
-    } catch (error) {
-      console.error('Erro na API, removendo localStorage:', error);
-    }
-    await this._removeFromStorage(id);
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
+    await this._saveToStorage(
+      routes.filter((r) => r.id !== id).map((r, i) => ({ ...r, sortOrder: i }))
+    );
   }
 
-  // --- Operações de ordenação ---
+  // --- Operações de ordenação de rotas ---
 
   async moveRoute(id: string, direction: 'up' | 'down'): Promise<Rota[]> {
-    const routes = await this.getRoutes();
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
     const index = routes.findIndex((r) => r.id === id);
     if (index === -1) return routes;
 
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= routes.length) return routes;
 
-    // Troca de posição
-    const updated = [...routes];
-    [updated[index], updated[targetIndex]] = [updated[targetIndex], updated[index]];
+    [routes[index], routes[targetIndex]] = [routes[targetIndex], routes[index]];
+    routes.forEach((r, i) => { r.sortOrder = i; });
 
-    // Atualiza sortOrder
-    updated.forEach((r, i) => {
-      r.sortOrder = i;
+    await this._saveToStorage(routes);
+    return routes;
+  }
+
+  async reorderRoutes(routeIds: string[]): Promise<Rota[]> {
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
+    const ordered = routeIds
+      .map((id) => routes.find((r) => r.id === id))
+      .filter((r): r is LocalStorageRota => Boolean(r));
+    // Acrescenta eventuais rotas que não estavam na lista enviada
+    routes.forEach((r) => {
+      if (!routeIds.includes(r.id)) ordered.push(r);
     });
+    ordered.forEach((r, i) => { r.sortOrder = i; });
+    await this._saveToStorage(ordered);
+    return ordered;
+  }
 
-    // Salva no localStorage
-    await this._saveToStorage(updated.map((r) => r as LocalStorageRota));
+  // --- Operações de pontos (dentro de uma rota) ---
+
+  async addPonto(rotaId: string, pontoData: Omit<Ponto, 'id'>): Promise<Ponto> {
+    const validation = validatePonto(pontoData);
+    if (!validation.valid) throw new Error(validation.errors.join(', '));
+
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
+    const rota = routes.find((r) => r.id === rotaId);
+    if (!rota) throw new Error('Rota não encontrada');
+
+    const newPonto = normalizePonto(pontoData);
+    rota.pontos.push(newPonto);
+    rota.updatedAt = new Date().toISOString();
+    await this._saveToStorage(routes);
+    return newPonto;
+  }
+
+  async updatePonto(rotaId: string, pontoId: string, pontoData: Partial<Ponto>): Promise<Ponto> {
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
+    const rota = routes.find((r) => r.id === rotaId);
+    if (!rota) throw new Error('Rota não encontrada');
+
+    const index = rota.pontos.findIndex((p) => p.id === pontoId);
+    if (index === -1) throw new Error('Ponto não encontrado');
+
+    const updated = normalizePonto({ ...rota.pontos[index], ...pontoData, id: pontoId });
+    const validation = validatePonto(updated);
+    if (!validation.valid) throw new Error(validation.errors.join(', '));
+
+    rota.pontos[index] = updated;
+    rota.updatedAt = new Date().toISOString();
+    await this._saveToStorage(routes);
     return updated;
   }
 
-  async reorderRoutes(routes: Rota[]): Promise<void> {
-    const sorted = routes.map((r, i) => ({ ...r, sortOrder: i }));
-    await this._saveToStorage(sorted as LocalStorageRota[]);
+  async deletePonto(rotaId: string, pontoId: string): Promise<void> {
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
+    const rota = routes.find((r) => r.id === rotaId);
+    if (!rota) throw new Error('Rota não encontrada');
+
+    rota.pontos = rota.pontos.filter((p) => p.id !== pontoId);
+    rota.updatedAt = new Date().toISOString();
+    await this._saveToStorage(routes);
   }
 
-  private async _saveToStorage(routes: LocalStorageRota[] = []): Promise<void> {
+  async movePonto(rotaId: string, pontoId: string, direction: 'up' | 'down'): Promise<void> {
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
+    const rota = routes.find((r) => r.id === rotaId);
+    if (!rota) throw new Error('Rota não encontrada');
+
+    const index = rota.pontos.findIndex((p) => p.id === pontoId);
+    if (index === -1) return;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= rota.pontos.length) return;
+
+    [rota.pontos[index], rota.pontos[targetIndex]] = [rota.pontos[targetIndex], rota.pontos[index]];
+    rota.updatedAt = new Date().toISOString();
+    await this._saveToStorage(routes);
+  }
+
+  private async _saveToStorage(routes: LocalStorageRota[]): Promise<void> {
     const sorted = [...routes].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
-  }
-
-  private async _updateInStorage(id: string, rota: Rota): Promise<void> {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
-    const parsed = JSON.parse(stored) as LocalStorageRota[];
-    const index = parsed.findIndex((r) => r.id === id);
-    if (index !== -1) {
-      parsed[index] = { ...parsed[index], ...rota, updatedAt: rota.updatedAt! } as LocalStorageRota;
-      await this._saveToStorage(parsed);
-    }
-  }
-
-  private async _removeFromStorage(id: string): Promise<void> {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
-    const parsed = JSON.parse(stored) as LocalStorageRota[];
-    const filtered = parsed.filter((r) => r.id !== id);
-    await this._saveToStorage(filtered);
   }
 }
 

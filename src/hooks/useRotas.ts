@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { rotasService } from '@/services/rotas';
-import { Rota, RotaStatus } from '@/types/rota';
+import { Rota, Ponto, RotaStatus } from '@/types/rota';
 
 export const useRotas = () => {
   const [routes, setRoutes] = useState<Rota[]>([]);
@@ -34,59 +34,62 @@ export const useRotas = () => {
     }
   }, []);
 
-  const createRoute = useCallback(async (rotaData: Omit<Rota, 'id' | 'createdAt' | 'updatedAt'>) => {
-    try {
-      const newRoute = await rotasService.createRoute(rotaData);
-      await loadRoutes();
-      return newRoute;
-    } catch (err: any) {
-      console.error('Error creating route:', err);
-      throw err;
-    }
+  // --- Rotas ---
+
+  const createRoute = useCallback(async (data: { name: string; status?: RotaStatus }) => {
+    const newRoute = await rotasService.createRoute(data);
+    await loadRoutes();
+    return newRoute;
   }, [loadRoutes]);
 
-  const updateRoute = useCallback(async (id: string, rotaData: Partial<Rota>) => {
-    try {
-      const updated = await rotasService.updateRoute(id, rotaData);
-      await loadRoutes();
-      return updated;
-    } catch (err: any) {
-      console.error('Error updating route:', err);
-      throw err;
-    }
+  const updateRoute = useCallback(async (id: string, data: Partial<Rota>) => {
+    const updated = await rotasService.updateRoute(id, data);
+    await loadRoutes();
+    return updated;
   }, [loadRoutes]);
 
   const deleteRoute = useCallback(async (id: string) => {
-    try {
-      await rotasService.deleteRoute(id);
-      await loadRoutes();
-    } catch (err: any) {
-      console.error('Error deleting route:', err);
-      throw err;
-    }
+    await rotasService.deleteRoute(id);
+    await loadRoutes();
   }, [loadRoutes]);
 
   const moveRoute = useCallback(async (id: string, direction: 'up' | 'down') => {
-    try {
-      const updated = await rotasService.moveRoute(id, direction);
-      setRoutes(updated);
-      return updated;
-    } catch (err: any) {
-      console.error('Error moving route:', err);
-      throw err;
-    }
+    const updated = await rotasService.moveRoute(id, direction);
+    setRoutes(updated);
+    return updated;
   }, []);
 
   const reorderRoutes = useCallback(async (rotaIds: string[]) => {
-    try {
-      const activeRoutes = routes.filter(r => rotaIds.includes(r.id));
-      await rotasService.reorderRoutes(activeRoutes);
-      await loadRoutes();
-    } catch (err: any) {
-      console.error('Error reordering routes:', err);
-      throw err;
-    }
-  }, [routes]);
+    const updated = await rotasService.reorderRoutes(rotaIds);
+    setRoutes(updated);
+    return updated;
+  }, []);
+
+  // --- Pontos (dentro de uma rota) ---
+
+  const addPonto = useCallback(async (rotaId: string, pontoData: Omit<Ponto, 'id'>) => {
+    const newPonto = await rotasService.addPonto(rotaId, pontoData);
+    await loadRoutes();
+    return newPonto;
+  }, [loadRoutes]);
+
+  const updatePonto = useCallback(async (rotaId: string, pontoId: string, pontoData: Partial<Ponto>) => {
+    const updated = await rotasService.updatePonto(rotaId, pontoId, pontoData);
+    await loadRoutes();
+    return updated;
+  }, [loadRoutes]);
+
+  const deletePonto = useCallback(async (rotaId: string, pontoId: string) => {
+    await rotasService.deletePonto(rotaId, pontoId);
+    await loadRoutes();
+  }, [loadRoutes]);
+
+  const movePonto = useCallback(async (rotaId: string, pontoId: string, direction: 'up' | 'down') => {
+    await rotasService.movePonto(rotaId, pontoId, direction);
+    await loadRoutes();
+  }, [loadRoutes]);
+
+  // --- Consultas ---
 
   const getRouteById = useCallback((id: string) => {
     return routes.find(r => r.id === id) || null;
@@ -118,6 +121,10 @@ export const useRotas = () => {
     deleteRoute,
     moveRoute,
     reorderRoutes,
+    addPonto,
+    updatePonto,
+    deletePonto,
+    movePonto,
     getRouteById,
     getRoutesByStatus,
     getActiveRoutes,

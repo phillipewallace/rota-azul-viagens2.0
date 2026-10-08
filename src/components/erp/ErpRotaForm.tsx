@@ -1,55 +1,66 @@
 /**
  * Modal de formulário para criação/edição de rotas no ERP.
- * Contém todos os campos da rota: nome, empresa, endereço, limpezas, banheiros,
- * contato, observação, número do sanitário, modelo e cor.
+ * Uma rota é um "card" (ex.: "Centro Barreiro") que agrupa vários pontos;
+ * aqui só se define nome e status. Os pontos são adicionados dentro do card.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Rota, validateRota } from '@/types/rota';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Rota, RotaStatus, validateRota } from '@/types/rota';
 import { toast } from 'sonner';
+
+export interface RotaFormData {
+  name: string;
+  status: RotaStatus;
+}
 
 interface ErpRotaFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   rota: Rota | null;
-  onSave: (data: Omit<Rota, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  onSave: (data: RotaFormData) => Promise<void>;
   isLoading: boolean;
 }
+
+const statusLabel: Record<RotaStatus, string> = {
+  ativa: 'Ativa',
+  inativa: 'Inativa',
+  concluida: 'Concluída',
+};
 
 const ErpRotaForm: React.FC<ErpRotaFormProps> = (
   { open, onOpenChange, rota, onSave, isLoading }
 ) => {
   const [name, setName] = useState(rota?.name || '');
-  const [company, setCompany] = useState(rota?.company || '');
-  const [address, setAddress] = useState(rota?.address || '');
-  const [cleaning, setCleaning] = useState(rota?.cleaning || '');
-  const [bathrooms, setBathrooms] = useState(rota?.bathrooms || '');
-  const [contact, setContact] = useState(rota?.contact || '');
-  const [observation, setObservation] = useState(rota?.observation || '');
-  const [sanitarioNumber, setSanitarioNumber] = useState(rota?.sanitarioNumber || '');
-  const [model, setModel] = useState(rota?.model || '');
-  const [color, setColor] = useState(rota?.color || '');
+  const [status, setStatus] = useState<RotaStatus>(rota?.status || 'ativa');
   const [errors, setErrors] = useState<string[]>([]);
+
+  // Reiniciar o estado ao abrir (novo ou edição)
+  useEffect(() => {
+    if (open) {
+      setName(rota?.name || '');
+      setStatus(rota?.status || 'ativa');
+      setErrors([]);
+    }
+  }, [open, rota]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validation = validateRota({ name, company, address });
+    const validation = validateRota({ name });
     if (!validation.valid) {
       setErrors(validation.errors);
-      toast.error('Preencha os campos obrigatórios');
+      toast.error('Preencha o nome da rota');
       return;
     }
     try {
-      await onSave({
-        name, company, address, cleaning, bathrooms, contact,
-        observation, sanitarioNumber, model, color
-      });
+      await onSave({ name: name.trim(), status });
       toast.success(rota ? 'Rota atualizada com sucesso!' : 'Rota criada com sucesso!');
       onOpenChange(false);
     } catch (err: any) {
@@ -62,13 +73,15 @@ const ErpRotaForm: React.FC<ErpRotaFormProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {rota ? 'Editar Rota' : 'Nova Rota'}
           </DialogTitle>
           <DialogDescription>
-            Preencha os dados da rota para {rota ? 'edição' : 'cadastro'}. Os campos obrigatórios são indicados com *.
+            {rota
+              ? 'Altere o nome e o status da rota.'
+              : 'Crie a rota (ex.: "Centro Barreiro") e depois adicione os pontos dentro do card.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -79,110 +92,24 @@ const ErpRotaForm: React.FC<ErpRotaFormProps> = (
               id="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: Rota de Limpeza - Centro"
+              placeholder="Ex: Centro Barreiro"
               className={inputClass}
+              autoFocus
             />
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="company" className="text-sm font-semibold text-slate-700">Empresa *</Label>
-            <Input
-              id="company"
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-              placeholder="Ex: Centro de Limpeza do Sul"
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="address" className="text-sm font-semibold text-slate-700">Endereço *</Label>
-            <Input
-              id="address"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Rua, número, bairro, cidade"
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="cleaning" className="text-sm font-semibold text-slate-700">Limpezas</Label>
-            <Textarea
-              id="cleaning"
-              value={cleaning}
-              onChange={(e) => setCleaning(e.target.value)}
-              placeholder="Ex: Limpeza geral, pás, pia, pátio..."
-              rows={2}
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="bathrooms" className="text-sm font-semibold text-slate-700">Banheiros</Label>
-            <Input
-              id="bathrooms"
-              value={bathrooms}
-              onChange={(e) => setBathrooms(e.target.value)}
-              placeholder="Ex: 2 banheiros, 1 sanitário..."
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="contact" className="text-sm font-semibold text-slate-700">Contato</Label>
-            <Input
-              id="contact"
-              value={contact}
-              onChange={(e) => setContact(e.target.value)}
-              placeholder="Nome e telefone do responsável"
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="observation" className="text-sm font-semibold text-slate-700">Observação</Label>
-            <Textarea
-              id="observation"
-              value={observation}
-              onChange={(e) => setObservation(e.target.value)}
-              placeholder="Informações adicionais importantes..."
-              rows={3}
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="sanitarioNumber" className="text-sm font-semibold text-slate-700">Número do Sanitário</Label>
-            <Input
-              id="sanitarioNumber"
-              value={sanitarioNumber}
-              onChange={(e) => setSanitarioNumber(e.target.value)}
-              placeholder="Ex: 32, A-10, Principal..."
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="model" className="text-sm font-semibold text-slate-700">Modelo</Label>
-            <Input
-              id="model"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="Ex: Van, Caminhão, Carro..."
-              className={inputClass}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="color" className="text-sm font-semibold text-slate-700">Cor</Label>
-            <Input
-              id="color"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              placeholder="Ex: Branco, Prata, Preto..."
-              className={inputClass}
-            />
+            <Label htmlFor="status" className="text-sm font-semibold text-slate-700">Status</Label>
+            <Select value={status} onValueChange={(v) => setStatus(v as RotaStatus)}>
+              <SelectTrigger id="status" className={inputClass}>
+                <SelectValue placeholder="Selecione o status" />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(statusLabel) as RotaStatus[]).map((s) => (
+                  <SelectItem key={s} value={s}>{statusLabel[s]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {errors.length > 0 && (

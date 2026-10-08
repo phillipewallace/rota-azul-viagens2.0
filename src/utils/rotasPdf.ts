@@ -27,6 +27,11 @@ export class RotaPdfGenerator {
     });
   }
 
+  /**
+   * Gera o PDF de uma rota completa: cabeçalho com o nome da rota,
+   * uma seção por ponto (empresa, endereço, limpezas, etc.) e
+   * área de assinatura do motorista no final.
+   */
   generateRotaPdf(rota: Rota | null, title: string = 'Rota de Entrega') {
     if (!rota) {
       throw new Error('Nenhuma rota encontrada para gerar PDF');
@@ -38,8 +43,11 @@ export class RotaPdfGenerator {
       units: 'mm',
     });
 
-    // ===== CABEÇALHO =====
+    const pageHeight = this.doc.internal.pageSize.height;
     const margin = 12;
+    const contentWidth = 186;
+
+    // ===== CABEÇALHO =====
     const headerHeight = 28;
 
     // Cor de fundo azul da empresa (estilo Azul)
@@ -48,73 +56,106 @@ export class RotaPdfGenerator {
 
     // Título
     this.doc.setFillColor(255, 255, 255);
-    this.doc.rect(margin, 4, 186, 18, 'F');
+    this.doc.rect(margin, 4, contentWidth, 18, 'F');
 
-    this.doc.setFontSize(22);
-    this.doc.setTextColor(255, 255, 255);
+    this.doc.setFontSize(20);
+    this.doc.setTextColor(0, 51, 102);
     this.doc.setFont('helvetica', 'bold');
     this.doc.text(title, margin + 6, 16);
 
-    // ===== CORPO DOS DADOS =====
+    // ===== CORPO: DADOS DA ROTA =====
     let y = headerHeight + 8;
 
-    this.doc.setTextColor(0, 0, 0);
-    this.doc.setFont('helvetica', 'normal');
-
-    // Labels e valores
     const drawLabel = (label: string, value: string, labelW: number = 38) => {
-      this.doc.setFontSize(12);
+      this.doc.setFontSize(11);
       this.doc.setFont('helvetica', 'bold');
       this.doc.setTextColor(0, 51, 102);
       this.doc.text(label, margin, y + 3);
 
-      this.doc.setFontSize(13);
+      this.doc.setFontSize(11);
       this.doc.setFont('helvetica', 'normal');
       this.doc.setTextColor(30, 30, 30);
-      const x = margin + labelW;
-      const text = value || '—';
-      const lineWidth = 160;
-      this.doc.text(text, x, y + 3, { maxWidth: lineWidth });
+      this.doc.text(value || '—', margin + labelW, y + 3, { maxWidth: contentWidth - labelW });
+      y += 7;
     };
 
-    drawLabel('Rota:', rota.name, 38);
-    y += 10;
+    drawLabel('Rota:', rota.name);
+    drawLabel('Status:', rota.status === 'ativa' ? 'Ativa' : rota.status === 'inativa' ? 'Inativa' : 'Concluída');
+    drawLabel('Pontos:', String(rota.pontos.length));
+    y += 3;
 
-    drawLabel('Empresa:', rota.company, 38);
-    y += 10;
+    // ===== SEÇÕES DOS PONTOS =====
+    if (rota.pontos.length === 0) {
+      this.doc.setFont('helvetica', 'italic');
+      this.doc.setFontSize(11);
+      this.doc.setTextColor(120, 120, 120);
+      this.doc.text('Nenhum ponto cadastrado nesta rota.', margin, y + 3);
+      y += 10;
+    }
 
-    drawLabel('Endereço:', rota.address, 38);
-    y += 10;
+    rota.pontos.forEach((ponto, index) => {
+      // Reserva de espaço do bloco do ponto + folga
+      const blockHeight = 78;
+      if (y + blockHeight > pageHeight - 55) {
+        this.doc.addPage();
+        y = 15;
+      }
 
-    drawLabel('Limpezas:', rota.cleaning, 38);
-    y += 10;
+      // Barra de título do ponto
+      this.doc.setFillColor(0, 51, 102);
+      this.doc.rect(margin, y, contentWidth, 8, 'F');
+      this.doc.setTextColor(255, 255, 255);
+      this.doc.setFont('helvetica', 'bold');
+      this.doc.setFontSize(11);
+      this.doc.text(`Ponto ${index + 1} de ${rota.pontos.length}`, margin + 3, y + 5.5);
+      y += 12;
 
-    drawLabel('Banheiros:', rota.bathrooms, 38);
-    y += 10;
+      drawLabel('Empresa:', ponto.company);
+      drawLabel('Endereço:', ponto.address);
+      drawLabel('Limpezas:', ponto.cleaning);
+      drawLabel('Banheiros:', ponto.bathrooms);
+      drawLabel('Contato:', ponto.contact);
+      drawLabel('Nº Sanitário:', ponto.sanitarioNumber, 44);
+      drawLabel('Modelo:', ponto.model);
+      drawLabel('Cor:', ponto.color);
 
-    drawLabel('Contato:', rota.contact, 38);
-    y += 10;
+      // Observação (fundo destacado + quebra de linha controlada)
+      if (ponto.observation) {
+        const obsLines = this.doc.splitTextToSize(ponto.observation, contentWidth - 8);
+        const obsHeight = Math.min(obsLines.length * 5 + 8, 30);
+        if (y + obsHeight > pageHeight - 55) {
+          this.doc.addPage();
+          y = 15;
+        }
+        this.doc.setFillColor(255, 247, 237); // âmbar-50
+        this.doc.setDrawColor(245, 158, 11);  // âmbar-500
+        this.doc.rect(margin, y, contentWidth, obsHeight, 'FD');
+        this.doc.setFont('helvetica', 'bold');
+        this.doc.setFontSize(10);
+        this.doc.setTextColor(146, 64, 14);
+        this.doc.text('Observação:', margin + 3, y + 5);
+        this.doc.setFont('helvetica', 'normal');
+        this.doc.setTextColor(120, 53, 15);
+        this.doc.text(obsLines.slice(0, 4), margin + 3, y + 10);
+        y += obsHeight + 5;
+      }
 
-    drawLabel('Observação:', rota.observation, 38);
-    y += 10;
-
-    drawLabel('Número do Sanitário:', rota.sanitarioNumber, 50);
-    y += 10;
-
-    drawLabel('Modelo:', rota.model, 38);
-    y += 10;
-
-    drawLabel('Cor:', rota.color, 38);
-    y += 10;
+      y += 4;
+    });
 
     // ===== ESPAÇO PARA MOTORISTA =====
+    if (y + 50 > pageHeight - 25) {
+      this.doc.addPage();
+      y = 15;
+    }
+
     const signatureTop = y + 5;
     const signatureAreaHeight = 40;
 
     // Linha divisória
     this.doc.setDrawColor(0, 51, 102);
     this.doc.setLineWidth(0.5);
-    this.doc.rect(margin, signatureTop, 186, signatureAreaHeight, 'S');
+    this.doc.rect(margin, signatureTop, contentWidth, signatureAreaHeight, 'S');
 
     // Título da área
     this.doc.setFontSize(11);
@@ -141,7 +182,7 @@ export class RotaPdfGenerator {
     this.doc.rect(margin + 20, signatureTop + 33, 60, 8, 'S');
 
     // ===== RODAPÉ =====
-    const footerY = this.doc.internal.pageSize.height - 15;
+    const footerY = pageHeight - 15;
     this.doc.setFontSize(8);
     this.doc.setFont('helvetica', 'normal');
     this.doc.setTextColor(120, 120, 120);
@@ -153,3 +194,4 @@ export class RotaPdfGenerator {
 }
 
 export const rotaPdfGenerator = new RotaPdfGenerator();
+
