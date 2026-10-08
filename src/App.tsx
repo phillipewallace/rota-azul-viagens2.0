@@ -21,6 +21,7 @@ const Maintenance = lazy(() => import("./pages/Maintenance"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const MobileDriver = lazy(() => import("./pages/MobileDriver"));
 const ErpRotas = lazy(() => import("./pages/erp/ErpRotas"));
+const ErpRotaDetalhe = lazy(() => import("./pages/erp/ErpRotaDetalhe"));
 const CreateRoute = lazy(() => import("./pages/CreateRoute"));
 const Customers = lazy(() => import("./pages/Customers"));
 const CompletedRoutes = lazy(() => import("./pages/CompletedRoutes"));
@@ -145,6 +146,7 @@ function AppShell() {
             <Route path="orcamentos" element={<ErpQuotes />} />
             <Route path="ordens-servico" element={<ServiceOrders />} />
             <Route path="rotas" element={<Protected><ErpRotas /></Protected>} />
+            <Route path="rotas/:id" element={<Protected><ErpRotaDetalhe /></Protected>} />
             <Route path="financeiro" element={<ErpFinanceiro />} />
             <Route path="contratos" element={<ErpContracts />} />
             <Route path="assinatura" element={<ErpAssinatura />} />
