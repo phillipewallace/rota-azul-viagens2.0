@@ -1,9 +1,9 @@
 /**
  * Gerador de PDF das Rotas do ERP.
  *
- * Formato: TABELA densa em paisagem (A4), 1 linha por ponto, SEM assinatura
- * do motorista. Objetivo: mesma legibilidade da planilha do Excel (~2 folhas),
- * em vez do formato antigo de blocos altos que gastava ~10 folhas.
+ * Formato: TABELA em retrato (A4), texto com quebra de linha (sem truncar com "…"),
+ * células mais altas, fonte maior e mais espaço entre linhas. SEM assinatura do
+ * motorista. Colunas enxutas: Empresa, Endereço, Limp., Banh., Contato, Observação.
  *
  * Uso: rotaPdfGenerator.generateRotaPdf(rota, rota.name)
  */
@@ -28,8 +28,7 @@ export class RotaPdfGenerator {
       throw new Error('Nenhuma rota encontrada para gerar PDF');
     }
 
-    // Paisagem = mais largura => cabe tudo em 1 linha por ponto => ~2 folhas.
-    const doc = new jsPDF({ orientation: 'landscape', format: 'a4', units: 'mm' });
+    const doc = new jsPDF({ orientation: 'portrait', format: 'a4', units: 'mm' });
 
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -38,65 +37,55 @@ export class RotaPdfGenerator {
 
     // ===== CABEÇALHO (barra azul) =====
     doc.setFillColor(0, 51, 102); // #003366
-    doc.rect(0, 0, pageWidth, 15, 'F');
+    doc.rect(0, 0, pageWidth, 22, 'F');
 
-    doc.setFontSize(14);
+    doc.setFontSize(15);
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.text(title, margin, 10);
+    doc.text(title, margin, 11);
 
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     const statusLabel =
       rota.status === 'ativa' ? 'Ativa' : rota.status === 'inativa' ? 'Inativa' : 'Concluída';
-    const info = `Status: ${statusLabel}    |    Pontos: ${rota.pontos.length}    |    Emitido: ${new Date().toLocaleDateString('pt-BR')}`;
-    doc.text(info, pageWidth - margin, 10, { align: 'right' });
+    const info = `Status: ${statusLabel}   |   ${rota.pontos.length} ponto(s)   |   Emitido: ${new Date().toLocaleDateString('pt-BR')}`;
+    doc.text(info, margin, 18);
 
     // ===== Definição das colunas (larguras em mm; a última absorve o resto) =====
-    const fontSize = 8;
+    const fontSize = 9;
     const columns: { header: string; key: keyof Rota['pontos'][number] | 'n'; width: number }[] = [
       { header: '#', key: 'n', width: 8 },
-      { header: 'Empresa', key: 'company', width: 44 },
-      { header: 'Endereço', key: 'address', width: 64 },
-      { header: 'Limp.', key: 'cleaning', width: 20 },
-      { header: 'Banh.', key: 'bathrooms', width: 15 },
-      { header: 'Contato', key: 'contact', width: 36 },
-      { header: 'Sanit.', key: 'sanitarioNumber', width: 20 },
-      { header: 'Modelo', key: 'model', width: 22 },
-      { header: 'Cor', key: 'color', width: 17 },
+      { header: 'Empresa', key: 'company', width: 40 },
+      { header: 'Endereço', key: 'address', width: 48 },
+      { header: 'Limp.', key: 'cleaning', width: 17 },
+      { header: 'Banh.', key: 'bathrooms', width: 14 },
+      { header: 'Contato', key: 'contact', width: 23 },
       { header: 'Observação', key: 'observation', width: 0 },
     ];
     const used = columns.reduce((sum, c) => sum + c.width, 0);
     columns[columns.length - 1].width = Math.max(contentWidth - used, 24);
 
-    // Trunca o texto medindo a largura REAL (mm) para NUNCA quebrar linha.
-    const truncate = (text: string, widthMm: number): string => {
-      doc.setFontSize(fontSize);
-      const value = (text || '').trim() || '—';
-      if (doc.getTextWidth(value) <= widthMm) return value;
-      let cut = value;
-      while (cut.length > 1 && doc.getTextWidth(cut + '…') > widthMm) {
-        cut = cut.slice(0, -1);
-      }
-      return cut + '…';
-    };
-
+    // Texto com quebra de linha natural (sem truncar com "…").
     const head = [columns.map((c) => c.header)];
     const body = rota.pontos.map((p, i) =>
-      columns.map((c) => (c.key === 'n' ? String(i + 1) : truncate(String((p as any)[c.key] ?? ''), c.width - 3)))
+      columns.map((c) => {
+        if (c.key === 'n') return String(i + 1);
+        const value = String((p as any)[c.key] ?? '').trim();
+        return value || '—';
+      })
     );
 
     autoTable(doc, {
-      startY: 19,
+      startY: 26,
       head,
       body: body.length ? body : [columns.map((_, i) => (i === 0 ? '—' : ''))],
       theme: 'grid',
-      margin: { left: margin, right: margin, top: 19, bottom: 8 },
+      margin: { left: margin, right: margin, top: 26, bottom: 10 },
       styles: {
         fontSize,
-        cellPadding: 1.2,
+        cellPadding: { top: 3.5, right: 2.5, bottom: 3.5, left: 2.5 },
+        minCellHeight: 12,
         lineWidth: 0.1,
-        overflow: 'hidden', // 1 linha por célula
         valign: 'middle',
         lineColor: [185, 195, 205],
         textColor: [40, 45, 55],
@@ -106,7 +95,7 @@ export class RotaPdfGenerator {
         textColor: 255,
         fontStyle: 'bold',
         halign: 'center',
-        minCellHeight: 6,
+        minCellHeight: 9,
       },
       alternateRowStyles: { fillColor: [241, 245, 249] },
       columnStyles: columns.reduce((acc, c, ci) => {
