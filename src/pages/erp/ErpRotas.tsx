@@ -5,20 +5,22 @@
  * Aqui ficam apenas: buscar, criar/editar rota, mover, excluir e gerar PDF.
  */
 import React, { useState } from 'react';
-import { PlusCircle, LayoutDashboard } from 'lucide-react';
+import { PlusCircle, LayoutDashboard, FileSpreadsheet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Rota } from '@/types/rota';
 import { useRotas } from '@/hooks/useRotas';
 import ErpRotaCard from '@/components/erp/ErpRotaCard';
 import ErpRotaForm, { RotaFormData } from '@/components/erp/ErpRotaForm';
+import ErpRotaImportDialog from '@/components/erp/ErpRotaImportDialog';
+import { ParsedRota } from '@/utils/rotasExcelParser';
 import { rotaPdfGenerator } from '@/utils/rotasPdf';
 import { toast } from 'sonner';
 
 const ErpRotas: React.FC = () => {
   const {
     routes, loading, error,
-    createRoute, updateRoute, deleteRoute, moveRoute,
+    createRoute, updateRoute, deleteRoute, moveRoute, importRotas,
   } = useRotas();
 
   const [search, setSearch] = useState('');
@@ -27,6 +29,9 @@ const ErpRotas: React.FC = () => {
   // Modal de rota (novo/editar)
   const [isRotaFormOpen, setIsRotaFormOpen] = useState(false);
   const [editingRota, setEditingRota] = useState<Rota | null>(null);
+
+  // Modal de importação do Excel (cada aba = uma rota)
+  const [isImportOpen, setIsImportOpen] = useState(false);
 
   // Filtro de busca (nome da rota ou qualquer ponto dela)
   const filteredRoutes = routes.filter((r) => {
@@ -88,6 +93,23 @@ const ErpRotas: React.FC = () => {
     }
   };
 
+  // ===== Importação do Excel (cada aba = uma rota) =====
+  const handleImportExcel = async (parsed: ParsedRota[]) => {
+    const created = await importRotas(
+      parsed.map((r) => ({ name: r.name, status: r.status, pontos: r.pontos })),
+    );
+    const skipped = parsed.length - created.length;
+    if (created.length === 0) {
+      toast.error('Nenhuma rota válida para importar (abas sem pontos foram ignoradas)');
+      return;
+    }
+    const totalPontos = created.reduce((s, r) => s + r.pontos.length, 0);
+    toast.success(
+      `${created.length} ${created.length === 1 ? 'rota importada' : 'rotas importadas'} com ${totalPontos} ${totalPontos === 1 ? 'ponto' : 'pontos'}!` +
+      (skipped > 0 ? ` (${skipped} ${skipped === 1 ? 'aba ignorada' : 'abas ignoradas'} sem pontos)` : ''),
+    );
+  };
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
       {/* Cabeçalho */}
@@ -110,6 +132,13 @@ const ErpRotas: React.FC = () => {
               <LayoutDashboard className="h-4 w-4" />
             </div>
           </div>
+          <Button
+            variant="outline"
+            onClick={() => setIsImportOpen(true)}
+            title="Importar rotas de uma planilha (cada aba vira uma rota)"
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" /> Importar Excel
+          </Button>
           <Button
             onClick={handleNewRota}
             className="bg-gradient-to-r from-primary to-primary-700 hover:from-primary/90 hover:to-primary-600"
@@ -160,6 +189,13 @@ const ErpRotas: React.FC = () => {
         rota={editingRota}
         onSave={handleSaveRota}
         isLoading={isSaving}
+      />
+
+      {/* Modal de importação do Excel */}
+      <ErpRotaImportDialog
+        open={isImportOpen}
+        onOpenChange={setIsImportOpen}
+        onImport={handleImportExcel}
       />
     </div>
   );

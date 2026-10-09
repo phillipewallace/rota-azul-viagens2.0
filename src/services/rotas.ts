@@ -135,6 +135,48 @@ export class RotasService {
     return ordered;
   }
 
+  /**
+   * Importação em lote (planilha Excel): cada item vira uma rota com seus pontos.
+   * Pontos sem empresa E sem endereço são descartados; rotas que ficarem sem
+   * nenhum ponto válido também são descartadas. Retorna as rotas criadas.
+   */
+  async importRotas(
+    items: { name: string; status?: RotaStatus; pontos: Array<Partial<Ponto>> }[],
+  ): Promise<Rota[]> {
+    const routes = (await this.getRoutes()) as LocalStorageRota[];
+    const created: LocalStorageRota[] = [];
+
+    for (const item of items) {
+      const name = item.name?.trim() || 'Rota importada';
+      const validPontos = (item.pontos || [])
+        .filter((p) => String(p.company ?? '').trim() !== '' || String(p.address ?? '').trim() !== '')
+        .map((p) =>
+          normalizePonto({
+            company: String(p.company ?? '').trim(),
+            address: String(p.address ?? '').trim(),
+            cleaning: String(p.cleaning ?? '').trim(),
+            bathrooms: String(p.bathrooms ?? '').trim(),
+            contact: String(p.contact ?? '').trim(),
+            observation: String(p.observation ?? '').trim(),
+            sanitarioNumber: String(p.sanitarioNumber ?? '').trim(),
+            model: String(p.model ?? '').trim(),
+            color: String(p.color ?? '').trim(),
+          }),
+        );
+      if (validPontos.length === 0) continue;
+
+      const newRota: LocalStorageRota = {
+        ...normalizeRota({ name, status: item.status || 'ativa', pontos: validPontos }),
+        sortOrder: routes.length + created.length,
+      };
+      routes.push(newRota);
+      created.push(newRota);
+    }
+
+    if (created.length > 0) await this._saveToStorage(routes);
+    return created;
+  }
+
   // --- Operações de pontos (dentro de uma rota) ---
 
   async addPonto(rotaId: string, pontoData: Omit<Ponto, 'id'>): Promise<Ponto> {

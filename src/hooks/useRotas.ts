@@ -65,6 +65,18 @@ export const useRotas = () => {
     return updated;
   }, []);
 
+  /**
+   * Importação em lote vinda do Excel: cada item = { name, pontos[] }.
+   * Recarrega a lista e retorna as rotas criadas.
+   */
+  const importRotas = useCallback(async (
+    items: { name: string; status?: RotaStatus; pontos: Array<Partial<Ponto>> }[],
+  ) => {
+    const created = await rotasService.importRotas(items);
+    await loadRoutes();
+    return created;
+  }, [loadRoutes]);
+
   // --- Pontos (dentro de uma rota) ---
 
   const addPonto = useCallback(async (rotaId: string, pontoData: Omit<Ponto, 'id'>) => {
@@ -121,6 +133,7 @@ export const useRotas = () => {
     deleteRoute,
     moveRoute,
     reorderRoutes,
+    importRotas,
     addPonto,
     updatePonto,
     deletePonto,
