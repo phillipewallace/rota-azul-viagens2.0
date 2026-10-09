@@ -94,4 +94,54 @@ describe('parseRotasWorkbook', () => {
     expect(rota.pontos[0].company).toBe('Loja Q');
     expect(rota.pontos[0].bathrooms).toBe('2');
   });
+
+  it('PEÇAS, SANITÁRIOS e BANHEIROS vão para campos separados', () => {
+    const buf = buildWorkbook({
+      'Rota Pecas': [
+        ['EMPRESA', 'ENDEREÇO', 'BANHEIROS', 'SANITÁRIOS', 'PEÇAS', 'LIMPEZA'],
+        ['Loja A', 'Rua A, 1', '2', '4', '6', '2x semana'],
+        ['Loja B', 'Rua B, 2', '1', '3', '5', '1x semana'],
+      ],
+    });
+
+    const [rota] = parseRotasWorkbook(buf);
+    expect(rota.pontos).toHaveLength(2);
+    expect(rota.pontos[0].bathrooms).toBe('2');
+    expect(rota.pontos[0].toilets).toBe('4');
+    expect(rota.pontos[0].pieces).toBe('6');
+    expect(rota.pontos[0].cleaning).toBe('2x semana');
+    expect(rota.pontos[1].bathrooms).toBe('1');
+    expect(rota.pontos[1].toilets).toBe('3');
+    expect(rota.pontos[1].pieces).toBe('5');
+  });
+
+  it('QTD genérico cai no primeiro campo de quantidade livre', () => {
+    const buf = buildWorkbook({
+      'Rota Qtd': [
+        ['Empresa', 'QTD', 'QTD Limpeza', 'Endereço'],
+        ['Loja C', '5', '3x', 'Rua C'],
+      ],
+    });
+
+    const [rota] = parseRotasWorkbook(buf);
+    const [p] = rota.pontos;
+    expect(p.bathrooms).toBe('5');
+    expect(p.cleaning).toBe('3x');
+    expect(p.company).toBe('Loja C');
+  });
+
+  it('palavras curtas não dão falso positivo (COR em ACORDO, TEL em HOTEL)', () => {
+    const buf = buildWorkbook({
+      'Rota Falso': [
+        ['Empresa', 'Acordo Comercial', 'Hotel Ref', 'Endereço'],
+        ['Loja D', 'X', 'Y', 'Rua D'],
+      ],
+    });
+
+    const [rota] = parseRotasWorkbook(buf);
+    const fields = rota.columnMap.map((c) => c.field);
+    expect(fields).not.toContain('color');
+    expect(fields).not.toContain('contact');
+    expect(rota.pontos[0].color ?? '').toBe('');
+  });
 });

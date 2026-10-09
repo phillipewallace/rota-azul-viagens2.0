@@ -32,6 +32,8 @@ const ErpPontoForm: React.FC<ErpPontoFormProps> = (
   const [address, setAddress] = useState('');
   const [cleaning, setCleaning] = useState('');
   const [bathrooms, setBathrooms] = useState('');
+  const [toilets, setToilets] = useState('');
+  const [pieces, setPieces] = useState('');
   const [contact, setContact] = useState('');
   const [observation, setObservation] = useState('');
   const [sanitarioNumber, setSanitarioNumber] = useState('');
@@ -46,6 +48,8 @@ const ErpPontoForm: React.FC<ErpPontoFormProps> = (
       setAddress(ponto?.address || '');
       setCleaning(ponto?.cleaning || '');
       setBathrooms(ponto?.bathrooms || '');
+      setToilets((ponto as any)?.toilets || '');
+      setPieces((ponto as any)?.pieces || '');
       setContact(ponto?.contact || '');
       setObservation(ponto?.observation || '');
       setSanitarioNumber(ponto?.sanitarioNumber || '');
@@ -60,7 +64,8 @@ const ErpPontoForm: React.FC<ErpPontoFormProps> = (
     const data: PontoFormData = {
       company, address, cleaning, bathrooms, contact,
       observation, sanitarioNumber, model, color,
-    };
+      toilets, pieces,
+    } as PontoFormData;
     const validation = validatePonto(data);
     if (!validation.valid) {
       setErrors(validation.errors);
@@ -133,7 +138,27 @@ const ErpPontoForm: React.FC<ErpPontoFormProps> = (
                 id="ponto-bathrooms"
                 value={bathrooms}
                 onChange={(e) => setBathrooms(e.target.value)}
-                placeholder="Ex: 2 banheiros, 1 sanitário..."
+                placeholder="Qtd. de banheiros"
+                className={inputClass}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="ponto-toilets" className="text-sm font-semibold text-slate-700">Sanitários</Label>
+              <Input
+                id="ponto-toilets"
+                value={toilets}
+                onChange={(e) => setToilets(e.target.value)}
+                placeholder="Qtd. de sanitários"
+                className={inputClass}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="ponto-pieces" className="text-sm font-semibold text-slate-700">Peças</Label>
+              <Input
+                id="ponto-pieces"
+                value={pieces}
+                onChange={(e) => setPieces(e.target.value)}
+                placeholder="Qtd. de peças"
                 className={inputClass}
               />
             </div>

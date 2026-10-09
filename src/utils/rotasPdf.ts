@@ -3,7 +3,8 @@
  *
  * Formato: TABELA em retrato (A4), texto com quebra de linha (sem truncar com "…"),
  * células mais altas, fonte maior e mais espaço entre linhas. SEM assinatura do
- * motorista. Colunas enxutas: Empresa, Endereço, Limp., Banh., Contato, Observação.
+ * motorista. Colunas enxutas: Empresa, Endereço, Limp., Banh., Sanit.,
+ * Peças, Contato, Observação.
  *
  * Uso: rotaPdfGenerator.generateRotaPdf(rota, rota.name)
  */
@@ -54,12 +55,14 @@ export class RotaPdfGenerator {
     // ===== Definição das colunas (larguras em mm; a última absorve o resto) =====
     const fontSize = 9;
     const columns: { header: string; key: keyof Rota['pontos'][number] | 'n'; width: number }[] = [
-      { header: '#', key: 'n', width: 8 },
-      { header: 'Empresa', key: 'company', width: 40 },
-      { header: 'Endereço', key: 'address', width: 48 },
-      { header: 'Limp.', key: 'cleaning', width: 17 },
-      { header: 'Banh.', key: 'bathrooms', width: 14 },
-      { header: 'Contato', key: 'contact', width: 23 },
+      { header: '#', key: 'n', width: 7 },
+      { header: 'Empresa', key: 'company', width: 34 },
+      { header: 'Endereço', key: 'address', width: 40 },
+      { header: 'Limp.', key: 'cleaning', width: 15 },
+      { header: 'Banh.', key: 'bathrooms', width: 12 },
+      { header: 'Sanit.', key: 'toilets', width: 12 },
+      { header: 'Peças', key: 'pieces', width: 12 },
+      { header: 'Contato', key: 'contact', width: 20 },
       { header: 'Observação', key: 'observation', width: 0 },
     ];
     const used = columns.reduce((sum, c) => sum + c.width, 0);

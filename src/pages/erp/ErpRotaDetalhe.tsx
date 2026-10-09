@@ -322,7 +322,7 @@ const ErpRotaDetalhe: React.FC = () => {
                     </div>
 
                     {/* Chips de detalhes */}
-                    {(ponto.cleaning || ponto.bathrooms || ponto.contact ||
+                    {(ponto.cleaning || ponto.bathrooms || (ponto as any).toilets || (ponto as any).pieces || ponto.contact ||
                       ponto.sanitarioNumber || ponto.model || ponto.color) && (
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         {ponto.cleaning && (
@@ -330,6 +330,12 @@ const ErpRotaDetalhe: React.FC = () => {
                         )}
                         {ponto.bathrooms && (
                           <Chip icon={<Bath className="h-3 w-3" />} label={`${ponto.bathrooms} banheiro(s)`} />
+                        )}
+                        {(ponto as any).toilets && (
+                          <Chip icon={<Bath className="h-3 w-3" />} label={`${(ponto as any).toilets} sanitário(s)`} />
+                        )}
+                        {(ponto as any).pieces && (
+                          <Chip icon={<ListOrdered className="h-3 w-3" />} label={`${(ponto as any).pieces} peça(s)`} />
                         )}
                         {ponto.contact && (
                           <Chip icon={<Phone className="h-3 w-3" />} label={ponto.contact} />

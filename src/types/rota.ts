@@ -15,6 +15,8 @@ export interface Ponto {
   address: string;           // Endereço
   cleaning: string;          // Limpezas (descrição)
   bathrooms: string;         // Banheiros (quantidade)
+  toilets: string;           // Sanitários (quantidade — pode diferir de banheiros)
+  pieces: string;            // Peças (quantidade — pode diferir das demais)
   contact: string;           // Contato
   observation: string;       // Observação
   sanitarioNumber: string;   // Número do sanitário
@@ -37,12 +39,15 @@ export const generateId = (prefix: 'rota' | 'ponto' = 'rota'): string =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 // Normalizar ponto para garantir campos consistentes
+// (toilets/pieces migram de bathrooms quando ausentes, para não perder dados antigos)
 export const normalizePonto = (ponto: Partial<Ponto>): Ponto => ({
   id: ponto.id || generateId('ponto'),
   company: ponto.company || '',
   address: ponto.address || '',
   cleaning: ponto.cleaning || '',
   bathrooms: ponto.bathrooms || '',
+  toilets: ponto.toilets || '',
+  pieces: ponto.pieces || '',
   contact: ponto.contact || '',
   observation: ponto.observation || '',
   sanitarioNumber: ponto.sanitarioNumber || '',

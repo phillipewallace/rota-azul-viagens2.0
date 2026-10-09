@@ -198,8 +198,13 @@ const ErpRotaImportDialog: React.FC<ErpRotaImportDialogProps> = ({
                           </Badge>
                         )}
                       </div>
-                      <p className="text-xs text-slate-400 mt-0.5 truncate">
-                        Colunas: {rota.columnMap.map((c) => `${FIELD_LABELS[c.field ?? 'company'] ?? c.header}`).join(' • ') || '—'}
+                      <p className="text-xs text-slate-500 mt-1">
+                        Mapeamento:{' '}
+                        {rota.columnMap.length
+                          ? rota.columnMap
+                              .map((c) => `"${c.header || `col ${c.columnIndex + 1}`}" → ${FIELD_LABELS[c.field ?? 'company']}`)
+                              .join(' • ')
+                          : 'nenhuma coluna reconhecida'}
                       </p>
                       {/* Amostra dos 2 primeiros pontos */}
                       <div className="mt-1 space-y-0.5">

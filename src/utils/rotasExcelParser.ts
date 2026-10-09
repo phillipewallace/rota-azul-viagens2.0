@@ -18,6 +18,8 @@ export type PontoField =
   | 'address'
   | 'cleaning'
   | 'bathrooms'
+  | 'toilets'
+  | 'pieces'
   | 'contact'
   | 'observation'
   | 'sanitarioNumber'
@@ -62,39 +64,130 @@ const normalize = (value: unknown): string =>
     .trim();
 
 /**
- * Palavras-chave por campo, na ordem de PRIORIDADE (mais específico primeiro).
- * O primeiro campo cuja palavra-chave estiver contida no cabeçalho "ganha" a
- * coluna — e cada campo só pode ser mapeado uma vez por aba.
+ * Palavras-chave por campo. O mapeamento usa o casamento MAIS LONGO
+ * (mais específico ganha): ex. "QTD LIMPEZA" casa 'limpeza' (7)
+ * contra 'qtd' (3) → vai para Limpezas, não Banheiros.
+ *
+ * 'genericQty' é um pseudo-campo: cabeçalhos genéricos de quantidade
+ * ("QTD", "TOTAL", "Nº"...) caem no PRIMEIRO campo de quantidade ainda
+ * livre da aba (banheiros → sanitários → peças).
  */
-const COLUMN_KEYWORDS: { field: PontoField; keywords: string[] }[] = [
-  { field: 'sanitarioNumber', keywords: ['numero sanitario', 'num sanitario', 'n sanitario', 'sanitario', 'numero do sanitario'] },
+type ColumnField = PontoField | 'genericQty';
+
+const COLUMN_KEYWORDS: { field: ColumnField; keywords: string[] }[] = [
+  {
+    field: 'sanitarioNumber',
+    keywords: [
+      'numero sanitario', 'num sanitario', 'n sanitario', 'numero do sanitario',
+      'numero sanit', 'num sanit', 'n sanit', 'codigo sanitario', 'cod sanitario',
+      'id sanitario', 'identificacao sanitario', 'patrimonio', 'tombamento', 'sanitario',
+    ],
+  },
   { field: 'observation', keywords: ['observacao', 'observacoes', 'obs'] },
-  { field: 'bathrooms', keywords: ['banheiro', 'banheiros', 'banh', 'wc'] },
-  { field: 'cleaning', keywords: ['limpeza', 'limpezas', 'limpar'] },
-  { field: 'address', keywords: ['endereco', 'logradouro', 'local', 'rua', 'localizacao'] },
-  { field: 'contact', keywords: ['contato', 'telefone', 'tel', 'celular', 'responsavel', 'whatsapp'] },
-  { field: 'company', keywords: ['empresa', 'cliente', 'razao social', 'nome'] },
+  {
+    field: 'bathrooms',
+    keywords: [
+      'quantidade banheiros', 'qtd banheiros', 'qtde banheiros', 'n banheiros',
+      'banheiros', 'banheiro', 'banh',
+    ],
+  },
+  {
+    field: 'toilets',
+    keywords: [
+      'quantidade sanitarios', 'qtd sanitarios', 'qtde sanitarios', 'n sanitarios',
+      'sanitarios', 'sanitario', 'sanit', 'vaso', 'vasos',
+    ],
+  },
+  {
+    field: 'pieces',
+    keywords: [
+      'quantidade pecas', 'qtd pecas', 'qtde pecas', 'n pecas',
+      'pecas', 'peca',
+    ],
+  },
+  {
+    field: 'genericQty',
+    keywords: [
+      'quantidade', 'qtde', 'qtd', 'quant', 'qte', 'qnt', 'qntd', 'total',
+      'unidade', 'unidades', 'wc',
+    ],
+  },
+  {
+    field: 'cleaning',
+    keywords: [
+      'quantidade limpeza', 'qtd limpeza', 'quantidade limpezas', 'qtd limpezas',
+      'limpeza', 'limpezas', 'limpar', 'limp', 'frequencia', 'freq',
+      'faxina', 'higienizacao', 'coleta',
+    ],
+  },
+  {
+    field: 'address',
+    keywords: [
+      'endereco', 'enderec', 'logradouro', 'lograd', 'localizacao',
+      'avenida', 'bairro', 'cidade', 'cep', 'local', 'rua',
+    ],
+  },
+  {
+    field: 'contact',
+    keywords: ['contato', 'telefone', 'tel', 'celular', 'responsavel', 'whatsapp', 'fone', 'zap'],
+  },
+  {
+    field: 'company',
+    keywords: ['razao social', 'empresa', 'cliente', 'fantasia', 'estabelecimento', 'nome'],
+  },
   { field: 'model', keywords: ['modelo'] },
-  { field: 'color', keywords: ['cor'] },
+  { field: 'color', keywords: ['cor', 'cores'] },
 ];
 
 /**
+ * Verifica se a palavra-chave aparece no cabeçalho normalizado.
+ * Palavras curtas (<=3 letras: qtd, cor, tel, wc, obs...) só casam como
+ * palavra inteira — evita "cor" casar com "acordo" ou "tel" com "hotel".
+ */
+function matchesKeyword(normalized: string, kw: string): boolean {
+  if (kw.includes(' ')) return normalized.includes(kw);
+  if (kw.length <= 3) return normalized.split(' ').includes(kw);
+  return normalized.includes(kw);
+}
+
+/**
  * Mapeia as células de um cabeçalho para campos do Ponto.
- * Cada campo é usado no máximo uma vez (primeira coluna que casar ganha).
+ * Cada campo é usado no máximo uma vez (o casamento com a palavra-chave
+ * MAIS LONGA ganha — ex.: "QTD LIMPEZA" vai para Limpezas, pois 'limpeza'
+ * é maior que 'qtd').
  */
 function mapHeaderRow(row: unknown[]): ParsedColumn[] {
   const usedFields = new Set<PontoField>();
+  // Ordem de preferência para cabeçalhos genéricos de quantidade
+  // ("QTD", "TOTAL", "Nº"...): banheiros → sanitários → peças.
+  const qtyOrder = ['bathrooms', 'toilets', 'pieces'] as const;
   return row.map((cell, columnIndex) => {
     const header = String(cell ?? '').trim();
     const normalized = normalize(cell);
     if (!normalized) return { field: null, columnIndex, header };
 
+    let bestField: ColumnField | null = null;
+    let bestLength = 0;
     for (const { field, keywords } of COLUMN_KEYWORDS) {
-      if (usedFields.has(field)) continue;
-      if (keywords.some((kw) => normalized.includes(kw))) {
-        usedFields.add(field);
-        return { field, columnIndex, header };
+      if (field !== 'genericQty' && usedFields.has(field)) continue;
+      for (const kw of keywords) {
+        if (!matchesKeyword(normalized, kw)) continue;
+        if (kw.length > bestLength) {
+          bestLength = kw.length;
+          bestField = field;
+        }
       }
+    }
+    if (bestField === 'genericQty') {
+      // Direciona para o primeiro campo de quantidade ainda livre.
+      const fallback = qtyOrder.find((f) => !usedFields.has(f));
+      if (!fallback) return { field: null, columnIndex, header };
+      usedFields.add(fallback);
+      return { field: fallback, columnIndex, header };
+    }
+    if (bestField) {
+      usedFields.add(bestField);
+      return { field: bestField, columnIndex, header };
     }
     return { field: null, columnIndex, header };
   });
@@ -211,6 +304,8 @@ export const FIELD_LABELS: Record<PontoField, string> = {
   address: 'Endereço',
   cleaning: 'Limpezas',
   bathrooms: 'Banheiros',
+  toilets: 'Sanitários',
+  pieces: 'Peças',
   contact: 'Contato',
   observation: 'Observação',
   sanitarioNumber: 'Nº Sanitário',
