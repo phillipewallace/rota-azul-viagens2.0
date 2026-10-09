@@ -1,5 +1,5 @@
 /**
- * Card de Rota para a listagem do ERP — SEM expansivel.
+ * Card de Rota para a listagem do ERP — SEM expansível.
  * Clicar no card entra "dentro do card": navega para /erp/rotas/:id,
  * onde ficam o mapinha Google Maps + pontos organizados.
  */
@@ -40,7 +40,7 @@ const ErpRotaCard: React.FC<ErpRotaCardProps> = ({
   } as const;
 
   const statusLabel = rota.status === 'ativa' ? 'Ativa' :
-    rota.status === 'inativa' ? 'Inativa' : 'Concluida';
+    rota.status === 'inativa' ? 'Inativa' : 'Concluída';
   const pontoCount = rota.pontos.length;
   const preview = rota.pontos.slice(0, 3);
   const open = () => navigate(`/erp/rotas/${rota.id}`);

@@ -1,10 +1,11 @@
-﻿/**
- * Pagina principal da aba "Rotas" no ERP â€” SEM expansivel.
+/**
+ * Página principal da aba "Rotas" no ERP — SEM card expansível.
  * Lista os cards; clicar entra "dentro do card" (/erp/rotas/:id),
- * onde ficam o mapinha Google Maps + pontos organizados.
+ * onde ficam o mapinha do Google Maps + os pontos organizados.
+ * Aqui ficam apenas: buscar, criar/editar rota, mover, excluir e gerar PDF.
  */
 import React, { useState } from 'react';
-import { PlusCircle, Search } from 'lucide-react';
+import { PlusCircle, LayoutDashboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Rota } from '@/types/rota';
@@ -12,7 +13,6 @@ import { useRotas } from '@/hooks/useRotas';
 import ErpRotaCard from '@/components/erp/ErpRotaCard';
 import ErpRotaForm, { RotaFormData } from '@/components/erp/ErpRotaForm';
 import { rotaPdfGenerator } from '@/utils/rotasPdf';
-import { confirmDialog } from '@/lib/confirm';
 import { toast } from 'sonner';
 
 const ErpRotas: React.FC = () => {
@@ -65,20 +65,9 @@ const ErpRotas: React.FC = () => {
   };
 
   const handleDeleteRota = async (id: string) => {
-    const rota = routes.find((r) => r.id === id);
-    const ok = await confirmDialog({
-      title: 'Excluir rota',
-      description: rota
-        ? `Excluir a rota "${rota.name}" e todos os seus pontos? Esta acao nao pode ser desfeita.`
-        : 'Excluir esta rota e todos os seus pontos? Esta acao nao pode ser desfeita.',
-      confirmLabel: 'Excluir',
-      cancelLabel: 'Cancelar',
-      destructive: true,
-    });
-    if (!ok) return;
     try {
       await deleteRoute(id);
-      toast.success('Rota excluÃ­da com sucesso!');
+      toast.success('Rota excluída com sucesso!');
     } catch (err: any) {
       toast.error(err.message || 'Erro ao excluir rota');
     }
@@ -92,7 +81,7 @@ const ErpRotas: React.FC = () => {
 
   const handleGeneratePdf = async (rota: Rota) => {
     try {
-      await rotaPdfGenerator.generateRotaPdf(rota, rota.name);
+      rotaPdfGenerator.generateRotaPdf(rota, rota.name);
       toast.success('PDF gerado com sucesso!');
     } catch (err: any) {
       toast.error(err.message || 'Erro ao gerar PDF');
@@ -101,23 +90,25 @@ const ErpRotas: React.FC = () => {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
-      {/* Cabecalho */}
+      {/* Cabeçalho */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Rotas</h1>
           <p className="text-slate-500 text-sm mt-1">
-            Clique em um card para entrar na rota e ver o mapa + pontos organizados.
+            Crie uma rota (ex.: Centro Barreiro), adicione os pontos dentro dela e gere o PDF.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:w-64">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+          <div className="relative flex-1 sm:max-w-xs">
             <Input
               placeholder="Buscar rota ou ponto..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-8"
             />
+            <div className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400">
+              <LayoutDashboard className="h-4 w-4" />
+            </div>
           </div>
           <Button
             onClick={handleNewRota}
@@ -128,7 +119,7 @@ const ErpRotas: React.FC = () => {
         </div>
       </div>
 
-      {/* Mensagens de estado */}
+      {/* Estados */}
       {loading && routes.length === 0 ? (
         <div className="flex items-center justify-center py-12">
           <div className="text-slate-400">Carregando rotas...</div>
@@ -142,16 +133,16 @@ const ErpRotas: React.FC = () => {
           <p className="text-slate-400">
             {search
               ? 'Nenhuma rota encontrada'
-              : 'Nenhuma rota criada. Clique em "Nova Rota" para comeÃ§ar.'}
+              : 'Nenhuma rota criada. Clique em "Nova Rota" para começar.'}
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {filteredRoutes.map((rota, i) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filteredRoutes.map((rota, index) => (
             <ErpRotaCard
               key={rota.id}
               rota={rota}
-              index={i}
+              index={index}
               total={filteredRoutes.length}
               onEdit={handleEditRota}
               onDelete={handleDeleteRota}
@@ -175,4 +166,3 @@ const ErpRotas: React.FC = () => {
 };
 
 export default ErpRotas;
-

@@ -1,197 +1,133 @@
+/**
+ * Gerador de PDF das Rotas do ERP.
+ *
+ * Formato: TABELA densa em paisagem (A4), 1 linha por ponto, SEM assinatura
+ * do motorista. Objetivo: mesma legibilidade da planilha do Excel (~2 folhas),
+ * em vez do formato antigo de blocos altos que gastava ~10 folhas.
+ *
+ * Uso: rotaPdfGenerator.generateRotaPdf(rota, rota.name)
+ */
 import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { Rota } from '@/types/rota';
 
 export interface RotaPdfOptions {
-  /**
-   * Modo português do Brasil (dados formatados com formato pt-BR)
-   * @default true
-   */
+  /** Formatar datas/números no padrão pt-BR. @default true */
   ptBR?: boolean;
-  /** Incluir identificação do motorista */
-  showDriverSignature?: boolean;
-  /** Em branco para preencher */
-  blankMode?: boolean;
 }
 
 export class RotaPdfGenerator {
-  private doc: jsPDF;
   private options: RotaPdfOptions;
 
   constructor(options: RotaPdfOptions = {}) {
-    this.options = { ptBR: true, showDriverSignature: true, ...options };
-    // Orientação retrato, tamanho A4
-    this.doc = new jsPDF({
-      orientation: 'portrait',
-      format: 'a4',
-      units: 'mm',
-    });
+    this.options = { ptBR: true, ...options };
   }
 
-  /**
-   * Gera o PDF de uma rota completa: cabeçalho com o nome da rota,
-   * uma seção por ponto (empresa, endereço, limpezas, etc.) e
-   * área de assinatura do motorista no final.
-   */
   generateRotaPdf(rota: Rota | null, title: string = 'Rota de Entrega') {
     if (!rota) {
       throw new Error('Nenhuma rota encontrada para gerar PDF');
     }
 
-    this.doc = new jsPDF({
-      orientation: 'portrait',
-      format: 'a4',
-      units: 'mm',
-    });
+    // Paisagem = mais largura => cabe tudo em 1 linha por ponto => ~2 folhas.
+    const doc = new jsPDF({ orientation: 'landscape', format: 'a4', units: 'mm' });
 
-    const pageHeight = this.doc.internal.pageSize.height;
-    const margin = 12;
-    const contentWidth = 186;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 8;
+    const contentWidth = pageWidth - margin * 2;
 
-    // ===== CABEÇALHO =====
-    const headerHeight = 28;
+    // ===== CABEÇALHO (barra azul) =====
+    doc.setFillColor(0, 51, 102); // #003366
+    doc.rect(0, 0, pageWidth, 15, 'F');
 
-    // Cor de fundo azul da empresa (estilo Azul)
-    this.doc.setFillColor(0, 51, 102); // #003366
-    this.doc.rect(0, 0, 210, headerHeight, 'F');
+    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.text(title, margin, 10);
 
-    // Título
-    this.doc.setFillColor(255, 255, 255);
-    this.doc.rect(margin, 4, contentWidth, 18, 'F');
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    const statusLabel =
+      rota.status === 'ativa' ? 'Ativa' : rota.status === 'inativa' ? 'Inativa' : 'Concluída';
+    const info = `Status: ${statusLabel}    |    Pontos: ${rota.pontos.length}    |    Emitido: ${new Date().toLocaleDateString('pt-BR')}`;
+    doc.text(info, pageWidth - margin, 10, { align: 'right' });
 
-    this.doc.setFontSize(20);
-    this.doc.setTextColor(0, 51, 102);
-    this.doc.setFont('helvetica', 'bold');
-    this.doc.text(title, margin + 6, 16);
+    // ===== Definição das colunas (larguras em mm; a última absorve o resto) =====
+    const fontSize = 8;
+    const columns: { header: string; key: keyof Rota['pontos'][number] | 'n'; width: number }[] = [
+      { header: '#', key: 'n', width: 8 },
+      { header: 'Empresa', key: 'company', width: 44 },
+      { header: 'Endereço', key: 'address', width: 64 },
+      { header: 'Limp.', key: 'cleaning', width: 20 },
+      { header: 'Banh.', key: 'bathrooms', width: 15 },
+      { header: 'Contato', key: 'contact', width: 36 },
+      { header: 'Sanit.', key: 'sanitarioNumber', width: 20 },
+      { header: 'Modelo', key: 'model', width: 22 },
+      { header: 'Cor', key: 'color', width: 17 },
+      { header: 'Observação', key: 'observation', width: 0 },
+    ];
+    const used = columns.reduce((sum, c) => sum + c.width, 0);
+    columns[columns.length - 1].width = Math.max(contentWidth - used, 24);
 
-    // ===== CORPO: DADOS DA ROTA =====
-    let y = headerHeight + 8;
-
-    const drawLabel = (label: string, value: string, labelW: number = 38) => {
-      this.doc.setFontSize(11);
-      this.doc.setFont('helvetica', 'bold');
-      this.doc.setTextColor(0, 51, 102);
-      this.doc.text(label, margin, y + 3);
-
-      this.doc.setFontSize(11);
-      this.doc.setFont('helvetica', 'normal');
-      this.doc.setTextColor(30, 30, 30);
-      this.doc.text(value || '—', margin + labelW, y + 3, { maxWidth: contentWidth - labelW });
-      y += 7;
+    // Trunca o texto medindo a largura REAL (mm) para NUNCA quebrar linha.
+    const truncate = (text: string, widthMm: number): string => {
+      doc.setFontSize(fontSize);
+      const value = (text || '').trim() || '—';
+      if (doc.getTextWidth(value) <= widthMm) return value;
+      let cut = value;
+      while (cut.length > 1 && doc.getTextWidth(cut + '…') > widthMm) {
+        cut = cut.slice(0, -1);
+      }
+      return cut + '…';
     };
 
-    drawLabel('Rota:', rota.name);
-    drawLabel('Status:', rota.status === 'ativa' ? 'Ativa' : rota.status === 'inativa' ? 'Inativa' : 'Concluída');
-    drawLabel('Pontos:', String(rota.pontos.length));
-    y += 3;
+    const head = [columns.map((c) => c.header)];
+    const body = rota.pontos.map((p, i) =>
+      columns.map((c) => (c.key === 'n' ? String(i + 1) : truncate(String((p as any)[c.key] ?? ''), c.width - 3)))
+    );
 
-    // ===== SEÇÕES DOS PONTOS =====
-    if (rota.pontos.length === 0) {
-      this.doc.setFont('helvetica', 'italic');
-      this.doc.setFontSize(11);
-      this.doc.setTextColor(120, 120, 120);
-      this.doc.text('Nenhum ponto cadastrado nesta rota.', margin, y + 3);
-      y += 10;
-    }
-
-    rota.pontos.forEach((ponto, index) => {
-      // Reserva de espaço do bloco do ponto + folga
-      const blockHeight = 78;
-      if (y + blockHeight > pageHeight - 55) {
-        this.doc.addPage();
-        y = 15;
-      }
-
-      // Barra de título do ponto
-      this.doc.setFillColor(0, 51, 102);
-      this.doc.rect(margin, y, contentWidth, 8, 'F');
-      this.doc.setTextColor(255, 255, 255);
-      this.doc.setFont('helvetica', 'bold');
-      this.doc.setFontSize(11);
-      this.doc.text(`Ponto ${index + 1} de ${rota.pontos.length}`, margin + 3, y + 5.5);
-      y += 12;
-
-      drawLabel('Empresa:', ponto.company);
-      drawLabel('Endereço:', ponto.address);
-      drawLabel('Limpezas:', ponto.cleaning);
-      drawLabel('Banheiros:', ponto.bathrooms);
-      drawLabel('Contato:', ponto.contact);
-      drawLabel('Nº Sanitário:', ponto.sanitarioNumber, 44);
-      drawLabel('Modelo:', ponto.model);
-      drawLabel('Cor:', ponto.color);
-
-      // Observação (fundo destacado + quebra de linha controlada)
-      if (ponto.observation) {
-        const obsLines = this.doc.splitTextToSize(ponto.observation, contentWidth - 8);
-        const obsHeight = Math.min(obsLines.length * 5 + 8, 30);
-        if (y + obsHeight > pageHeight - 55) {
-          this.doc.addPage();
-          y = 15;
-        }
-        this.doc.setFillColor(255, 247, 237); // âmbar-50
-        this.doc.setDrawColor(245, 158, 11);  // âmbar-500
-        this.doc.rect(margin, y, contentWidth, obsHeight, 'FD');
-        this.doc.setFont('helvetica', 'bold');
-        this.doc.setFontSize(10);
-        this.doc.setTextColor(146, 64, 14);
-        this.doc.text('Observação:', margin + 3, y + 5);
-        this.doc.setFont('helvetica', 'normal');
-        this.doc.setTextColor(120, 53, 15);
-        this.doc.text(obsLines.slice(0, 4), margin + 3, y + 10);
-        y += obsHeight + 5;
-      }
-
-      y += 4;
+    autoTable(doc, {
+      startY: 19,
+      head,
+      body: body.length ? body : [columns.map((_, i) => (i === 0 ? '—' : ''))],
+      theme: 'grid',
+      margin: { left: margin, right: margin, top: 19, bottom: 8 },
+      styles: {
+        fontSize,
+        cellPadding: 1.2,
+        lineWidth: 0.1,
+        overflow: 'hidden', // 1 linha por célula
+        valign: 'middle',
+        lineColor: [185, 195, 205],
+        textColor: [40, 45, 55],
+      },
+      headStyles: {
+        fillColor: [0, 51, 102],
+        textColor: 255,
+        fontStyle: 'bold',
+        halign: 'center',
+        minCellHeight: 6,
+      },
+      alternateRowStyles: { fillColor: [241, 245, 249] },
+      columnStyles: columns.reduce((acc, c, ci) => {
+        acc[ci] = { cellWidth: c.width, halign: ci === 1 || ci === 2 ? 'left' : 'center' };
+        return acc;
+      }, {} as Record<number, { cellWidth: number; halign: 'left' | 'center' | 'right' }>),
+      didDrawPage: (data) => {
+        const pages = (doc as any).getNumberOfPages();
+        doc.setFontSize(7);
+        doc.setTextColor(130);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Página ${data.pageNumber} de ${pages}`, pageWidth - margin, pageHeight - 4, {
+          align: 'right',
+        });
+      },
     });
 
-    // ===== ESPAÇO PARA MOTORISTA =====
-    if (y + 50 > pageHeight - 25) {
-      this.doc.addPage();
-      y = 15;
-    }
-
-    const signatureTop = y + 5;
-    const signatureAreaHeight = 40;
-
-    // Linha divisória
-    this.doc.setDrawColor(0, 51, 102);
-    this.doc.setLineWidth(0.5);
-    this.doc.rect(margin, signatureTop, contentWidth, signatureAreaHeight, 'S');
-
-    // Título da área
-    this.doc.setFontSize(11);
-    this.doc.setFont('helvetica', 'bold');
-    this.doc.setTextColor(0, 51, 102);
-    const signatureLabel = this.options.blankMode
-      ? 'ASSINATURA DO MOTORISTA (em branco)'
-      : 'ASSINATURA DO MOTORISTA';
-    this.doc.text(signatureLabel, margin + 5, signatureTop + 6);
-
-    // Subtítulos
-    this.doc.setFontSize(9);
-    this.doc.setFont('helvetica', 'normal');
-    this.doc.setTextColor(80, 80, 80);
-    this.doc.text('Nome:', margin + 5, signatureTop + 18);
-    this.doc.text('Assinatura:', margin + 38, signatureTop + 18);
-
-    // Linha de texto para motorista escrever
-    this.doc.setDrawColor(150, 150, 150);
-    this.doc.setLineWidth(0.3);
-    this.doc.rect(margin + 20, signatureTop + 22, 120, 12, 'S');
-
-    this.doc.text('Data:', margin + 5, signatureTop + 36);
-    this.doc.rect(margin + 20, signatureTop + 33, 60, 8, 'S');
-
-    // ===== RODAPÉ =====
-    const footerY = pageHeight - 15;
-    this.doc.setFontSize(8);
-    this.doc.setFont('helvetica', 'normal');
-    this.doc.setTextColor(120, 120, 120);
-    this.doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, margin, footerY);
-
-    const fileName = `rota-${rota.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '')}-${new Date().toISOString().split('T')[0]}.pdf`;
-    this.doc.save(fileName);
+    const safeName = rota.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
+    const fileName = `rota-${safeName}-${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
   }
 }
 
 export const rotaPdfGenerator = new RotaPdfGenerator();
-
