@@ -3,8 +3,11 @@
  *
  * Formato: TABELA em retrato (A4), texto com quebra de linha (sem truncar com "…"),
  * células mais altas, fonte maior e mais espaço entre linhas. SEM assinatura do
- * motorista. Colunas enxutas: Empresa, Endereço, Limp., Banh., Sanit.,
- * Peças, Contato, Observação.
+ * motorista. Colunas enxutas: Empresa, Endereço, Limp., Qtd., Contato, Observação.
+ *
+ * A coluna "Qtd." UNIFICA as quantidades: o parser lê Banheiros / Sanitários /
+ * Peças em campos separados (podem diferir), mas o PDF mostra tudo numa única
+ * coluna — se houver mais de um valor diferente, exibe rotulado (B/S/P).
  *
  * Uso: rotaPdfGenerator.generateRotaPdf(rota, rota.name)
  */
@@ -54,25 +57,45 @@ export class RotaPdfGenerator {
 
     // ===== Definição das colunas (larguras em mm; a última absorve o resto) =====
     const fontSize = 9;
-    const columns: { header: string; key: keyof Rota['pontos'][number] | 'n'; width: number }[] = [
-      { header: '#', key: 'n', width: 7 },
-      { header: 'Empresa', key: 'company', width: 34 },
-      { header: 'Endereço', key: 'address', width: 40 },
-      { header: 'Limp.', key: 'cleaning', width: 15 },
-      { header: 'Banh.', key: 'bathrooms', width: 12 },
-      { header: 'Sanit.', key: 'toilets', width: 12 },
-      { header: 'Peças', key: 'pieces', width: 12 },
-      { header: 'Contato', key: 'contact', width: 20 },
+    // "qty" é virtual: unifica bathrooms + toilets + pieces numa coluna só.
+    const columns: { header: string; key: keyof Rota['pontos'][number] | 'n' | 'qty'; width: number }[] = [
+      { header: '#', key: 'n', width: 8 },
+      { header: 'Empresa', key: 'company', width: 38 },
+      { header: 'Endereço', key: 'address', width: 46 },
+      { header: 'Limp.', key: 'cleaning', width: 17 },
+      { header: 'Qtd.', key: 'qty', width: 16 },
+      { header: 'Contato', key: 'contact', width: 22 },
       { header: 'Observação', key: 'observation', width: 0 },
     ];
     const used = columns.reduce((sum, c) => sum + c.width, 0);
     columns[columns.length - 1].width = Math.max(contentWidth - used, 24);
+
+    /**
+     * Unifica as 3 quantidades (banheiros/sanitários/peças) numa célula só:
+     * - tudo vazio → "—"
+     * - um único valor (ou valores iguais) → o valor puro ("4")
+     * - valores diferentes → rotulado por linha ("B: 2\nS: 4\nP: 6")
+     */
+    const formatQty = (p: Rota['pontos'][number]): string => {
+      const b = String((p as any).bathrooms ?? '').trim();
+      const s = String((p as any).toilets ?? '').trim();
+      const pc = String((p as any).pieces ?? '').trim();
+      const vals = [b, s, pc].filter(Boolean);
+      if (vals.length === 0) return '—';
+      if (new Set(vals).size === 1) return vals[0];
+      const lines: string[] = [];
+      if (b) lines.push(`B: ${b}`);
+      if (s) lines.push(`S: ${s}`);
+      if (pc) lines.push(`P: ${pc}`);
+      return lines.join('\n');
+    };
 
     // Texto com quebra de linha natural (sem truncar com "…").
     const head = [columns.map((c) => c.header)];
     const body = rota.pontos.map((p, i) =>
       columns.map((c) => {
         if (c.key === 'n') return String(i + 1);
+        if (c.key === 'qty') return formatQty(p);
         const value = String((p as any)[c.key] ?? '').trim();
         return value || '—';
       })
