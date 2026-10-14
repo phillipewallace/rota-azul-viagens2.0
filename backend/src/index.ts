@@ -50,6 +50,7 @@ import erpSpreadsheetsRoutes from './routes/erp-spreadsheets';
 import appFuncionariosRoutes from './routes/app-funcionarios';
 import erpOsHistoryRoutes from './routes/erp-os-history';
 import erpOsRecolhimentoRoutes from './routes/erp-os-recolhimento';
+import erpRotasRoutes from './routes/erp-rotas';
 import { requireAuth } from './middleware/requireAuth';
 import { restrictDemo } from './middleware/restrictDemo';
 
@@ -168,6 +169,7 @@ app.use('/api/erp/spreadsheets', erpSpreadsheetsRoutes);
 app.use('/api/office', erpOfficeRoutes);
 app.use('/api/erp/service-orders', erpOsHistoryRoutes);
 app.use('/api/erp/service-orders', erpOsRecolhimentoRoutes);
+app.use('/api/erp/rotas', erpRotasRoutes);
 // App funcionários (csll.cloud): mesma API, sessão isolada (csll_func_user)
 app.use('/api/funcionarios', appFuncionariosRoutes);
 
